@@ -1,0 +1,239 @@
+[
+  {
+    "id": "gmx",
+    "name": "GMX",
+    "region": "DE",
+    "note": "Benutzername ist die volle E-Mail-Adresse. Bei aktivierter 2FA ein App-Passwort verwenden.",
+    "imap": { "host": "imap.gmx.net", "port": 993, "secure": true },
+    "smtp": { "host": "mail.gmx.net", "port": 587, "secure": false }
+  },
+  {
+    "id": "webde",
+    "name": "WEB.DE",
+    "region": "DE",
+    "note": "Benutzername ist die volle E-Mail-Adresse.",
+    "imap": { "host": "imap.web.de", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.web.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "ionos",
+    "name": "IONOS",
+    "region": "DE",
+    "note": "Früher 1&1. Benutzername ist die volle E-Mail-Adresse.",
+    "imap": { "host": "imap.ionos.de", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.ionos.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "tonline",
+    "name": "Telekom / T-Online",
+    "region": "DE",
+    "note": "Benutzername ist die volle T-Online-Mailadresse.",
+    "imap": { "host": "secureimap.t-online.de", "port": 993, "secure": true },
+    "smtp": { "host": "securesmtp.t-online.de", "port": 465, "secure": true }
+  },
+  {
+    "id": "strato",
+    "name": "STRATO",
+    "region": "DE",
+    "note": "Benutzername ist die volle E-Mail-Adresse.",
+    "imap": { "host": "imap.strato.de", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.strato.de", "port": 465, "secure": true }
+  },
+  {
+    "id": "freenet",
+    "name": "Freenet",
+    "region": "DE",
+    "note": "Benutzername ist die volle E-Mail-Adresse.",
+    "imap": { "host": "mx.freenet.de", "port": 993, "secure": true },
+    "smtp": { "host": "mx.freenet.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "posteo",
+    "name": "Posteo",
+    "region": "DE",
+    "note": "Posteo-Passwort. Benutzername ist die volle Adresse.",
+    "imap": { "host": "posteo.de", "port": 993, "secure": true },
+    "smtp": { "host": "posteo.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "mailboxorg",
+    "name": "mailbox.org",
+    "region": "DE",
+    "note": "Benutzername ist die volle E-Mail-Adresse.",
+    "imap": { "host": "imap.mailbox.org", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.mailbox.org", "port": 587, "secure": false }
+  },
+  {
+    "id": "mailde",
+    "name": "mail.de",
+    "region": "DE",
+    "imap": { "host": "imap.mail.de", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.mail.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "eclipso",
+    "name": "eclipso",
+    "region": "DE",
+    "imap": { "host": "mail.eclipso.de", "port": 993, "secure": true },
+    "smtp": { "host": "mail.eclipso.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "goneo",
+    "name": "goneo",
+    "region": "DE",
+    "imap": { "host": "imap.goneo.de", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.goneo.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "allinkl",
+    "name": "ALL-INKL",
+    "region": "DE",
+    "note": "Host steht im KAS, oft wXXXXX.kasserver.com. Die Platzhalter-Hosts vor dem Speichern ersetzen.",
+    "imap": { "host": "wXXXXX.kasserver.com", "port": 993, "secure": true },
+    "smtp": { "host": "wXXXXX.kasserver.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "hetzner",
+    "name": "Hetzner",
+    "region": "DE",
+    "note": "Typisch mail.your-server.de. Den Host aus der KonsoleH prüfen.",
+    "imap": { "host": "mail.your-server.de", "port": 993, "secure": true },
+    "smtp": { "host": "mail.your-server.de", "port": 587, "secure": false }
+  },
+  {
+    "id": "df",
+    "name": "domainFACTORY",
+    "region": "DE",
+    "note": "Host aus dem Kundenmenü eintragen, oft sslin.df.eu.",
+    "imap": { "host": "sslin.df.eu", "port": 993, "secure": true },
+    "smtp": { "host": "sslout.df.eu", "port": 465, "secure": true }
+  },
+  {
+    "id": "netcup",
+    "name": "netcup",
+    "region": "DE",
+    "note": "Host ist serverabhängig, zum Beispiel mxeXXX.netcup.net.",
+    "imap": { "host": "mxeXXX.netcup.net", "port": 993, "secure": true },
+    "smtp": { "host": "mxeXXX.netcup.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "proton-bridge",
+    "name": "Proton Mail Bridge",
+    "region": "EU",
+    "note": "Nur erreichbar, wenn die Proton Bridge auf demselben Rechner wie MailConnect läuft. Für einen entfernten Server ungeeignet.",
+    "imap": { "host": "127.0.0.1", "port": 1143, "secure": false },
+    "smtp": { "host": "127.0.0.1", "port": 1025, "secure": false }
+  },
+  {
+    "id": "gmail",
+    "name": "Gmail",
+    "region": "EU",
+    "note": "IMAP in Gmail aktivieren und ein App-Passwort verwenden. Das normale Kontopasswort funktioniert nicht.",
+    "imap": { "host": "imap.gmail.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.gmail.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "outlook",
+    "name": "Outlook / Hotmail / Microsoft 365",
+    "region": "EU",
+    "note": "Bei Microsoft-Konten oft ein App-Passwort nötig. OAuth ist in dieser Version nicht eingebaut.",
+    "imap": { "host": "outlook.office365.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.office365.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "yahoo",
+    "name": "Yahoo",
+    "region": "EU",
+    "note": "App-Passwort verwenden.",
+    "imap": { "host": "imap.mail.yahoo.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.mail.yahoo.com", "port": 465, "secure": true }
+  },
+  {
+    "id": "icloud",
+    "name": "iCloud",
+    "region": "EU",
+    "note": "App-spezifisches Passwort von appleid.apple.com. Benutzername ist die Apple-ID.",
+    "imap": { "host": "imap.mail.me.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.mail.me.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "aol",
+    "name": "AOL",
+    "region": "EU",
+    "note": "App-Passwort verwenden.",
+    "imap": { "host": "imap.aol.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.aol.com", "port": 465, "secure": true }
+  },
+  {
+    "id": "ovh",
+    "name": "OVHcloud",
+    "region": "EU",
+    "note": "Je nach Angebot ssl0.ovh.net. Benutzername ist die volle Adresse.",
+    "imap": { "host": "ssl0.ovh.net", "port": 993, "secure": true },
+    "smtp": { "host": "ssl0.ovh.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "infomaniak",
+    "name": "Infomaniak",
+    "region": "CH",
+    "imap": { "host": "mail.infomaniak.com", "port": 993, "secure": true },
+    "smtp": { "host": "mail.infomaniak.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "zoho-eu",
+    "name": "Zoho Mail EU",
+    "region": "EU",
+    "note": "App-Passwort empfohlen. Europäische Server.",
+    "imap": { "host": "imap.zoho.eu", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.zoho.eu", "port": 465, "secure": true }
+  },
+  {
+    "id": "fastmail",
+    "name": "Fastmail",
+    "region": "EU",
+    "note": "App-Passwort verwenden.",
+    "imap": { "host": "imap.fastmail.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.fastmail.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "gandi",
+    "name": "Gandi",
+    "region": "EU",
+    "imap": { "host": "mail.gandi.net", "port": 993, "secure": true },
+    "smtp": { "host": "mail.gandi.net", "port": 465, "secure": true }
+  },
+  {
+    "id": "migadu",
+    "name": "Migadu",
+    "region": "EU",
+    "imap": { "host": "imap.migadu.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.migadu.com", "port": 465, "secure": true }
+  },
+  {
+    "id": "startmail",
+    "name": "StartMail",
+    "region": "EU",
+    "imap": { "host": "imap.startmail.com", "port": 993, "secure": true },
+    "smtp": { "host": "smtp.startmail.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "runbox",
+    "name": "Runbox",
+    "region": "EU",
+    "imap": { "host": "mail.runbox.com", "port": 993, "secure": true },
+    "smtp": { "host": "mail.runbox.com", "port": 587, "secure": false }
+  },
+  {
+    "id": "mailboxorg-smtp",
+    "name": "Nur Versand (SMTP-Beispiel mailbox.org)",
+    "region": "DE",
+    "note": "Preset nur für SMTP. IMAP leer lassen, wenn du ausschließlich senden willst.",
+    "smtp": { "host": "smtp.mailbox.org", "port": 587, "secure": false }
+  },
+  {
+    "id": "custom",
+    "name": "Eigener Server",
+    "region": "EU",
+    "note": "Host, Port und TLS selbst eintragen. IMAP, SMTP oder beides."
+  }
+]

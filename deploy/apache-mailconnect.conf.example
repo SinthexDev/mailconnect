@@ -1,0 +1,11 @@
+# Additional Apache directives for the sinthex.de vhost.
+# MailConnect itself listens on 127.0.0.1:3911 and is not placed in the document root.
+
+ProxyPreserveHost On
+ProxyPass /mailconnect http://127.0.0.1:3911/mailconnect timeout=300
+ProxyPassReverse /mailconnect http://127.0.0.1:3911/mailconnect
+
+<Location /mailconnect/mcp>
+  SetEnv proxy-nokeepalive 1
+  SetEnv no-gzip 1
+</Location>

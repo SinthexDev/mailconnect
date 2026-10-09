@@ -1,0 +1,15 @@
+[Unit]
+Description=MailConnect
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/vhosts/sinthex.de/mailconnect/app
+EnvironmentFile=/var/www/vhosts/sinthex.de/mailconnect/.env
+ExecStart=/usr/bin/node server.cjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

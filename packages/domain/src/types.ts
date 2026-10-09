@@ -1,0 +1,190 @@
+export type Role = "admin" | "user";
+
+export type IndexStatus = "idle" | "syncing" | "error" | "disabled";
+
+export type User = {
+  id: string;
+  email: string;
+  passwordHash: string;
+  role: Role;
+  createdAt: string;
+};
+
+export type PublicUser = {
+  id: string;
+  email: string;
+  role: Role;
+};
+
+export type Invite = {
+  id: string;
+  email: string | null;
+  createdBy: string;
+  expiresAt: string;
+  usedAt: string | null;
+  usedBy: string | null;
+  createdAt: string;
+};
+
+export type ApiToken = {
+  id: string;
+  userId: string;
+  name: string;
+  createdAt: string;
+  revokedAt: string | null;
+  lastUsedAt: string | null;
+};
+
+export type ChannelSettings = {
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+};
+
+export type ChannelInput = ChannelSettings & {
+  password?: string;
+};
+
+export type Mailbox = {
+  id: string;
+  userId: string;
+  displayName: string;
+  email: string;
+  providerId: string | null;
+  imap: ChannelSettings | null;
+  smtp: ChannelSettings | null;
+  indexStatus: IndexStatus;
+  indexedCount: number;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  errorStreak: number;
+  retryAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EncryptedBlob = {
+  ciphertext: Buffer;
+  iv: Buffer;
+  authTag: Buffer;
+  keyVersion: number;
+};
+
+export type CredentialKind = "imap" | "smtp";
+
+export type FolderCursor = {
+  mailboxId: string;
+  folder: string;
+  uidValidity: number | null;
+  lastUid: number;
+  indexedCount: number;
+  lastSyncAt: string | null;
+  status: IndexStatus;
+  lastError: string | null;
+};
+
+export type IndexedMessage = {
+  id: string;
+  mailboxId: string;
+  folder: string;
+  uid: number;
+  messageId: string | null;
+  threadId: string | null;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  date: string | null;
+  flags: string[];
+  hasAttachments: boolean;
+  snippet: string;
+};
+
+export type RemoteMessage = {
+  uid: number;
+  messageId: string | null;
+  threadId: string | null;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  date: string | null;
+  flags: string[];
+  hasAttachments: boolean;
+  snippet: string;
+  bodyHash: string | null;
+};
+
+export type FolderPull = {
+  folder: string;
+  uidValidity: number;
+  reset: boolean;
+  messages: RemoteMessage[];
+  caughtUp: boolean;
+  highestUid: number;
+};
+
+export type PullBatch = {
+  folders: FolderPull[];
+  caughtUp: boolean;
+};
+
+export type FullMessage = {
+  subject: string;
+  from: string;
+  to: string;
+  cc: string;
+  date: string | null;
+  text: string;
+  html: string | null;
+};
+
+export type OutboundMail = {
+  from: string;
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  text: string;
+  html?: string;
+};
+
+export type ProviderPreset = {
+  id: string;
+  name: string;
+  region: string;
+  note?: string;
+  imap?: { host: string; port: number; secure: boolean };
+  smtp?: { host: string; port: number; secure: boolean };
+};
+
+export type SearchQuery = {
+  userId: string;
+  text?: string;
+  mailboxId?: string;
+  folder?: string;
+  since?: string;
+  until?: string;
+  limit: number;
+};
+
+export type IndexStats = {
+  mailboxCount: number;
+  imapCount: number;
+  smtpOnlyCount: number;
+  indexedMessages: number;
+  syncing: number;
+  errors: number;
+  lastSyncAt: string | null;
+};
+
+export type ChannelTestResult = {
+  ok: boolean;
+  error?: string;
+};
+
+export type ConnectionTestResult = {
+  imap?: ChannelTestResult;
+  smtp?: ChannelTestResult;
+};
