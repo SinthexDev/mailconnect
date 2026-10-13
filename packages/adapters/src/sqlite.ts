@@ -1,6 +1,6 @@
-import { mkdirSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
-import Database from "better-sqlite3";
+import Database from "better-sqlite3-multiple-ciphers";
 import type {
   ApiToken,
   ApiTokenRepository,
@@ -67,6 +67,8 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   display_name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
   email TEXT NOT NULL,
   provider_id TEXT,
   imap_host TEXT,
@@ -103,6 +105,7 @@ CREATE TABLE IF NOT EXISTS folder_sync (
   uid_validity INTEGER,
   last_uid INTEGER NOT NULL DEFAULT 0,
   indexed_count INTEGER NOT NULL DEFAULT 0,
+  remote_count INTEGER NOT NULL DEFAULT 0,
   last_sync_at TEXT,
   status TEXT NOT NULL,
   last_error TEXT,
@@ -159,6 +162,8 @@ type MailboxRow = {
   id: string;
   user_id: string;
   display_name: string;
+  description: string;
+  instructions: string;
   email: string;
   provider_id: string | null;
   imap_host: string | null;
@@ -211,6 +216,8 @@ function mapMailbox(row: MailboxRow): Mailbox {
     id: row.id,
     userId: row.user_id,
     displayName: row.display_name,
+    description: row.description,
+    instructions: row.instructions,
     email: row.email,
     providerId: row.provider_id,
     imap: channel(row.imap_host, row.imap_port, row.imap_secure, row.imap_username),
@@ -254,6 +261,94 @@ function parseFlags(value: string): string[] {
   }
 }
 
+const PLAIN_HEADER = Buffer.from("SQLite format 3\0");
+
+function isPlaintextFile(filename: string): boolean {
+  if (!existsSync(filename)) return false;
+  const fd = openSync(filename, "r");
+  try {
+    const buf = Buffer.alloc(16);
+    const read = readSync(fd, buf, 0, 16, 0);
+    return read === 16 && buf.equals(PLAIN_HEADER);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function armCipher(db: Database.Database): void {
+  db.pragma("cipher = 'sqlcipher'");
+  db.pragma("legacy = 4");
+}
+
+function tune(db: Database.Database): void {
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 5000");
+}
+
+function assertReadable(db: Database.Database): void {
+  db.prepare("SELECT count(*) AS c FROM sqlite_master").get();
+}
+
+function removeSidecars(filename: string): void {
+  rmSync(`${filename}-wal`, { force: true });
+  rmSync(`${filename}-shm`, { force: true });
+}
+
+function openDatabase(filename: string, key: Buffer): Database.Database {
+  if (key.length !== 32) throw new Error("MAILCONNECT_MASTER_KEY muss 32 Bytes lang sein.");
+  if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
+  if (filename !== ":memory:" && isPlaintextFile(filename)) return encryptExisting(filename, key);
+  const db = new Database(filename);
+  armCipher(db);
+  db.key(key);
+  try {
+    assertReadable(db);
+  } catch (error) {
+    db.close();
+    const message = error instanceof Error ? error.message : "";
+    if (message.includes("not a database")) {
+      throw new Error("Die Datenbank lässt sich mit MAILCONNECT_MASTER_KEY nicht öffnen.");
+    }
+    throw error;
+  }
+  tune(db);
+  if (filename !== ":memory:") rmSync(`${filename}.before-encrypt`, { force: true });
+  if (isPlaintextFile(filename)) {
+    db.close();
+    return encryptExisting(filename, key);
+  }
+  return db;
+}
+
+function encryptExisting(filename: string, key: Buffer): Database.Database {
+  const staging = new Database(filename);
+  staging.pragma("wal_checkpoint(TRUNCATE)");
+  staging.close();
+  removeSidecars(filename);
+  const backup = `${filename}.before-encrypt`;
+  copyFileSync(filename, backup);
+  console.log("MailConnect verschlüsselt die Datenbankdatei.");
+  const db = new Database(filename);
+  try {
+    armCipher(db);
+    db.rekey(key);
+    assertReadable(db);
+    tune(db);
+    if (isPlaintextFile(filename)) {
+      throw new Error("Die Datenbankdatei ist nach dem Verschlüsseln noch im Klartext.");
+    }
+  } catch (error) {
+    db.close();
+    copyFileSync(backup, filename);
+    rmSync(backup, { force: true });
+    removeSidecars(filename);
+    throw error;
+  }
+  rmSync(backup, { force: true });
+  return db;
+}
+
 export class SqliteDatabase {
   readonly db: Database.Database;
   readonly users: UserRepository;
@@ -264,12 +359,8 @@ export class SqliteDatabase {
   readonly credentials: CredentialRepository;
   readonly messages: MessageIndexRepository;
 
-  constructor(filename: string) {
-    if (filename !== ":memory:") mkdirSync(dirname(filename), { recursive: true });
-    this.db = new Database(filename);
-    this.db.pragma("journal_mode = WAL");
-    this.db.pragma("foreign_keys = ON");
-    this.db.pragma("busy_timeout = 5000");
+  constructor(filename: string, key: Buffer) {
+    this.db = openDatabase(filename, key);
     this.migrate();
     this.users = new UserRepo(this.db);
     this.invites = new InviteRepo(this.db);
@@ -291,6 +382,16 @@ export class SqliteDatabase {
     this.db.exec(TRIGGERS);
     const version = this.db.prepare("SELECT version FROM schema_migrations WHERE version = 1").get();
     if (!version) this.db.prepare("INSERT INTO schema_migrations (version) VALUES (1)").run();
+    const columns = this.db.prepare("PRAGMA table_info(mailboxes)").all() as Array<{ name: string }>;
+    for (const name of ["description", "instructions"]) {
+      if (!columns.some((column) => column.name === name)) {
+        this.db.exec(`ALTER TABLE mailboxes ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
+      }
+    }
+    const folderColumns = this.db.prepare("PRAGMA table_info(folder_sync)").all() as Array<{ name: string }>;
+    if (!folderColumns.some((column) => column.name === "remote_count")) {
+      this.db.exec("ALTER TABLE folder_sync ADD COLUMN remote_count INTEGER NOT NULL DEFAULT 0");
+    }
   }
 }
 
@@ -479,13 +580,13 @@ class MailboxRepo implements MailboxRepository {
   private write(mailbox: Mailbox, insert: boolean): void {
     const sql = insert
       ? `INSERT INTO mailboxes (
-           id, user_id, display_name, email, provider_id,
+           id, user_id, display_name, description, instructions, email, provider_id,
            imap_host, imap_port, imap_secure, imap_username,
            smtp_host, smtp_port, smtp_secure, smtp_username,
            index_status, indexed_count, last_sync_at, last_error, error_streak, retry_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       : `UPDATE mailboxes SET
-           display_name = ?, email = ?, provider_id = ?,
+           display_name = ?, description = ?, instructions = ?, email = ?, provider_id = ?,
            imap_host = ?, imap_port = ?, imap_secure = ?, imap_username = ?,
            smtp_host = ?, smtp_port = ?, smtp_secure = ?, smtp_username = ?,
            index_status = ?, indexed_count = ?, last_sync_at = ?, last_error = ?, error_streak = ?, retry_at = ?, updated_at = ?
@@ -505,6 +606,8 @@ class MailboxRepo implements MailboxRepository {
         mailbox.id,
         mailbox.userId,
         mailbox.displayName,
+        mailbox.description,
+        mailbox.instructions,
         mailbox.email,
         mailbox.providerId,
         ...channelValues,
@@ -521,6 +624,8 @@ class MailboxRepo implements MailboxRepository {
     }
     this.db.prepare(sql).run(
       mailbox.displayName,
+      mailbox.description,
+      mailbox.instructions,
       mailbox.email,
       mailbox.providerId,
       ...channelValues,
@@ -557,6 +662,7 @@ class MailboxRepo implements MailboxRepository {
         `SELECT * FROM mailboxes
          WHERE imap_host IS NOT NULL
            AND index_status != 'disabled'
+           AND index_status != 'paused'
            AND (retry_at IS NULL OR retry_at <= ?)
          ORDER BY COALESCE(last_sync_at, created_at) ASC`,
       )
@@ -689,17 +795,18 @@ class MessageRepo implements MessageIndexRepository {
       const count = this.db.prepare("SELECT COUNT(*) AS c FROM messages WHERE mailbox_id = ? AND folder = ?").get(mailboxId, pull.folder) as { c: number };
       this.db
         .prepare(
-          `INSERT INTO folder_sync (mailbox_id, folder, uid_validity, last_uid, indexed_count, last_sync_at, status, last_error)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+          `INSERT INTO folder_sync (mailbox_id, folder, uid_validity, last_uid, indexed_count, remote_count, last_sync_at, status, last_error)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
            ON CONFLICT (mailbox_id, folder) DO UPDATE SET
              uid_validity = excluded.uid_validity,
              last_uid = excluded.last_uid,
              indexed_count = excluded.indexed_count,
+             remote_count = excluded.remote_count,
              last_sync_at = excluded.last_sync_at,
              status = excluded.status,
              last_error = NULL`,
         )
-        .run(mailboxId, pull.folder, pull.uidValidity, pull.highestUid, count.c, syncedAt, pull.caughtUp ? "idle" : "syncing");
+        .run(mailboxId, pull.folder, pull.uidValidity, pull.highestUid, count.c, pull.remoteCount, syncedAt, pull.caughtUp ? "idle" : "syncing");
     });
     tx();
   }
@@ -707,6 +814,22 @@ class MessageRepo implements MessageIndexRepository {
   count(mailboxId: string): number {
     const row = this.db.prepare("SELECT COUNT(*) AS c FROM messages WHERE mailbox_id = ?").get(mailboxId) as { c: number };
     return row.c;
+  }
+
+  progress(mailboxId: string) {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS folder_total,
+                SUM(CASE WHEN status = 'idle' THEN 1 ELSE 0 END) AS folder_done,
+                COALESCE(SUM(remote_count), 0) AS message_total
+         FROM folder_sync WHERE mailbox_id = ?`,
+      )
+      .get(mailboxId) as { folder_total: number; folder_done: number | null; message_total: number };
+    return {
+      folderTotal: row.folder_total,
+      folderDone: row.folder_done ?? 0,
+      messageTotal: row.folder_total === 0 ? null : row.message_total,
+    };
   }
 
   search(query: SearchQuery): IndexedMessage[] {

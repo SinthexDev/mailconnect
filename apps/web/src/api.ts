@@ -1,17 +1,20 @@
+import { formatDate, localizeError } from './i18n';
+
 export type Role = string;
 export interface User { id: string; email: string; role: Role }
 export interface Channel { host: string; port: number; secure: boolean; username: string }
 export interface ChannelInput extends Channel { password?: string }
-export type IndexStatus = 'idle' | 'syncing' | 'error' | 'disabled';
+export type IndexStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'disabled';
 export interface Mailbox {
-  id: string; displayName: string; email: string; providerId: string;
+  id: string; displayName: string; description: string; instructions: string; email: string; providerId: string;
   imap: Channel | null; smtp: Channel | null;
   indexStatus: IndexStatus; indexedCount: number;
+  messageTotal: number | null; folderTotal: number; folderDone: number;
   lastSyncAt: string | null; lastError: string | null;
   createdAt: string; updatedAt: string;
 }
 export interface MailboxInput {
-  displayName: string; email: string; providerId: string;
+  displayName: string; description: string; instructions: string; email: string; providerId: string;
   imap: ChannelInput | null; smtp: ChannelInput | null;
 }
 export interface Provider {
@@ -34,6 +37,7 @@ export interface MessageSummary {
 export interface MessageBody {
   subject: string; from: string; to: string; cc: string; date: string;
   text: string | null; html: string | null;
+  attachments?: Array<{ id: string; filename: string; contentType: string; size: number | null }>;
 }
 export interface Invite { id: string; email: string | null; expiresAt: string; usedAt: string | null; createdAt: string }
 export interface TokenRow { id: string; name: string; createdAt: string; revokedAt: string | null; lastUsedAt: string | null }
@@ -62,12 +66,10 @@ export async function api<T = unknown>(path: string, method = 'GET', body?: unkn
 }
 
 export function errMsg(e: unknown): string {
-  return e instanceof Error ? e.message : 'Unbekannter Fehler';
+  if (e instanceof ApiError) return localizeError(e.code, e.message);
+  return e instanceof Error ? e.message : localizeError('unknown', '');
 }
 
 export function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return 'noch nie';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('de-DE', { dateStyle: 'medium', timeStyle: 'short' });
+  return formatDate(iso);
 }

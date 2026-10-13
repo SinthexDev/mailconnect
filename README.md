@@ -2,12 +2,13 @@
 
 MailConnect verbindet IMAP- und SMTP-Konten mit einem lokalen Suchindex und einer MCP-Schnittstelle. Agenten können den Index durchsuchen, Nachrichten bei Bedarf vom Server laden und, wenn SMTP eingerichtet ist, senden.
 
-Die Registrierung ist nur mit Einladung möglich. Der erste Admin entsteht über die Bootstrap-CLI.
+Die Registrierung ist nur mit Einladung möglich. Der erste Admin entsteht über die Bootstrap-CLI. Die öffentliche Startseite erklärt den Ablauf, die Versionsliste liegt in [`_documentation/CHANGELOG.md`](_documentation/CHANGELOG.md).
 
 ## Sicherheit
 
+- Datenbankdatei inklusive Index: SQLCipher, Schlüssel ist `MAILCONNECT_MASTER_KEY` (32 Bytes, nur in der Umgebung). Eine ältere Klartext-Datei wird beim Start verschlüsselt.
 - Passwörter der Benutzer: Argon2id
-- IMAP-/SMTP-Geheimnisse: AES-256-GCM mit `MAILCONNECT_MASTER_KEY` (32 Bytes, nur in der Umgebung)
+- IMAP-/SMTP-Geheimnisse: AES-256-GCM mit demselben Schlüssel
 - API-Tokens und Sitzungen: nur als SHA-256-Hash, das Geheimnis wird einmal angezeigt
 - Transport zu den Mailservern: TLS 1.2+ (implizit oder STARTTLS)
 - `.env`, SQLite-Dateien und Schlüssel gehören nicht ins Git
@@ -35,7 +36,7 @@ node release/server.cjs
 
 Ein Konto braucht IMAP, SMTP oder beides. SMTP-only Konten werden nicht indiziert.
 
-Nach dem Speichern eines IMAP-Kontos liest ein Worker Ordner und neue UIDs ein. Im Index liegen Metadaten, Flags und ein Textausschnitt (etwa 500 Zeichen), plus Volltextsuche über SQLite FTS5. Der vollständige Body wird erst beim Öffnen per IMAP geladen. Der Abgleich läuft direkt nach dem Anlegen und danach etwa alle zwei Minuten. Schlägt ein Server fehl, wartet der Worker mit wachsendem Abstand (höchstens 30 Minuten).
+Nach dem Speichern eines IMAP-Kontos liest ein Worker Ordner und neue UIDs ein. Im Index liegen Metadaten, Flags und ein Textausschnitt (etwa 500 Zeichen), plus Volltextsuche über SQLite FTS5. Die Datenbankdatei ist verschlüsselt; die Suche läuft im Prozess, der sie geöffnet hat. Der vollständige Body wird erst beim Öffnen per IMAP geladen. Der Abgleich läuft direkt nach dem Anlegen und danach etwa alle zwei Minuten. Schlägt ein Server fehl, wartet der Worker mit wachsendem Abstand (höchstens 30 Minuten).
 
 Die Anbieterliste in `data/providers/de-eu.json` füllt Host und Port für verbreitete Dienste in Deutschland und Europa vor. Zugangsdaten trägst du selbst ein. Gmail, Microsoft, Yahoo und iCloud brauchen in der Regel ein App-Passwort. Proton Mail Bridge funktioniert nur auf demselben Rechner wie MailConnect.
 
@@ -47,11 +48,12 @@ Authentifizierung: `Authorization: Bearer <token>`. Den Token legst du in der Ob
 
 Werkzeuge:
 
-- `list_mailboxes`
+- `list_mailboxes` (mit Beschreibung und Handlungsanweisungen für Agenten)
 - `get_index_stats`
 - `list_folders`
 - `search_messages`
-- `get_message`
+- `get_message` (listet Anhänge mit Dateiname und Teil-ID)
+- `get_attachment` (lädt die Datei, zum Beispiel eine PDF-Rechnung)
 - `send_email`
 - `sync_mailbox`
 

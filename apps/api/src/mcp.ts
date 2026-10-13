@@ -31,11 +31,12 @@ const sendShape = {
 export function mountMcp(router: Router, container: Container): void {
   router.all("/mcp", async (req, res) => {
     try {
-      const user = userFromBearer(container, req);
+      const token = bearerToken(req);
+      const user = token ? container.tokens.authenticate(token) : null;
       if (!user) {
         res.status(401).setHeader("WWW-Authenticate", 'Bearer realm="mailconnect"').json({
           error: "unauthorized",
-          message: "Bearer-Token erforderlich.",
+          message: token ? "Token ungültig." : "Bearer-Token erforderlich.",
         });
         return;
       }
@@ -60,11 +61,17 @@ async function handleMcp(container: Container, user: PublicUser, req: Request, r
 }
 
 function registerTools(server: McpServer, container: Container, user: PublicUser): void {
-  server.tool("list_mailboxes", "Listet die Mailkonten des angemeldeten Benutzers inklusive Indexstatus.", {}, async () =>
+  server.tool(
+    "list_mailboxes",
+    "Listet die Mailkonten inklusive description und instructions. Die Beschreibung sagt, wofür ein Postfach gedacht ist. Die Handlungsanweisungen sind verbindlich: handle nur innerhalb dieser Regeln.",
+    {},
+    async () =>
     json({
       mailboxes: container.mailboxes.list(user).map((mailbox) => ({
         id: mailbox.id,
         displayName: mailbox.displayName,
+        description: mailbox.description,
+        instructions: mailbox.instructions,
         email: mailbox.email,
         providerId: mailbox.providerId,
         hasImap: Boolean(mailbox.imap),
@@ -87,7 +94,7 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
 
   server.tool(
     "search_messages",
-    "Durchsucht den lokalen Mail-Index. Liefert Metadaten und einen Textausschnitt, nicht den vollständigen Body.",
+    "Durchsucht den lokalen Mail-Index. Liefert Metadaten, mailboxDescription, mailboxInstructions und einen Textausschnitt, nicht den vollständigen Body. Befolge die Handlungsanweisungen.",
     searchShape,
     async (input) => {
       const messages = container.mail.search({
@@ -99,31 +106,95 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
         until: input.until,
         limit: input.limit ?? 20,
       });
-      return json({ messages });
+      const mailboxes = new Map(container.mailboxes.list(user).map((mailbox) => [mailbox.id, mailbox]));
+      return json({
+        messages: messages.map((message) => {
+          const mailbox = mailboxes.get(message.mailboxId);
+          return {
+            ...message,
+            mailboxDescription: mailbox?.description ?? "",
+            mailboxInstructions: mailbox?.instructions ?? "",
+          };
+        }),
+      });
     },
   );
 
-  server.tool("get_message", "Lädt eine indexierte Nachricht vollständig vom IMAP-Server.", messageShape, async ({ messageId }) => {
-    const message = await container.mail.read(user, messageId);
-    return json({
-      id: message.indexed.id,
-      mailboxId: message.indexed.mailboxId,
-      folder: message.indexed.folder,
-      uid: message.indexed.uid,
-      subject: message.subject,
-      from: message.from,
-      to: message.to,
-      cc: message.cc,
-      date: message.date,
-      flags: message.indexed.flags,
-      text: message.text.slice(0, 100_000),
-    });
-  });
+  server.tool(
+    "get_message",
+    "Lädt eine indexierte Nachricht vom IMAP-Server, inklusive der Liste attachments mit id, filename, contentType und size. Den Dateiinhalt lädst du mit get_attachment. Befolge mailboxInstructions.",
+    messageShape,
+    async ({ messageId }) => {
+      const message = await container.mail.read(user, messageId);
+      const mailbox = container.mailboxes.list(user).find((item) => item.id === message.indexed.mailboxId);
+      return json({
+        id: message.indexed.id,
+        mailboxId: message.indexed.mailboxId,
+        mailboxDescription: mailbox?.description ?? "",
+        mailboxInstructions: mailbox?.instructions ?? "",
+        folder: message.indexed.folder,
+        uid: message.indexed.uid,
+        subject: message.subject,
+        from: message.from,
+        to: message.to,
+        cc: message.cc,
+        date: message.date,
+        flags: message.indexed.flags,
+        text: message.text.slice(0, 100_000),
+        attachments: message.attachments,
+      });
+    },
+  );
 
-  server.tool("send_email", "Sendet eine E-Mail über das SMTP des gewählten Kontos.", sendShape, async (input) => {
-    await container.mail.send(user, input);
-    return json({ ok: true });
-  });
+  server.tool(
+    "get_attachment",
+    "Lädt einen Anhang einer indexierten Nachricht, zum Beispiel eine PDF-Rechnung. Nimm die id aus get_message.attachments. Die Datei kommt als Inhalt mit.",
+    {
+      messageId: z.string().uuid().describe("Index-ID aus search_messages"),
+      attachmentId: z.string().min(1).max(40).describe("id aus attachments"),
+    },
+    async ({ messageId, attachmentId }) => {
+      const file = await container.mail.readAttachment(user, messageId, attachmentId);
+      const bytes = Buffer.from(file.data);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({
+              id: file.id,
+              filename: file.filename,
+              contentType: file.contentType,
+              size: bytes.byteLength,
+            }),
+          },
+          {
+            type: "resource" as const,
+            resource: {
+              uri: `mailconnect://messages/${messageId}/attachments/${file.id}/${encodeURIComponent(file.filename)}`,
+              mimeType: file.contentType,
+              blob: bytes.toString("base64"),
+            },
+          },
+        ],
+      };
+    },
+  );
+
+  const standingOrders = container.mailboxes.list(user)
+    .filter((mailbox) => mailbox.instructions.trim())
+    .map((mailbox) => `${mailbox.displayName} (${mailbox.email}): ${mailbox.instructions}`)
+    .join("\n");
+  server.tool(
+    "send_email",
+    standingOrders
+      ? `Sendet eine E-Mail über das SMTP des gewählten Kontos. Die Handlungsanweisungen sind verbindlich. Wenn sie eine menschliche Zustimmung verlangen, sende nicht.\n\n${standingOrders}`
+      : "Sendet eine E-Mail über das SMTP des gewählten Kontos. Stehen am Postfach Handlungsanweisungen, sind sie verbindlich.",
+    sendShape,
+    async (input) => {
+      await container.mail.send(user, input);
+      return json({ ok: true });
+    },
+  );
 
   server.tool("sync_mailbox", "Stößt die Index-Synchronisation eines IMAP-Kontos an.", { mailboxId: z.string().uuid() }, async ({ mailboxId }) => {
     const mailbox = container.sync.enqueue(user, mailboxId);
@@ -137,10 +208,21 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
   });
 }
 
-function userFromBearer(container: Container, req: Request): PublicUser | null {
-  const header = req.headers.authorization;
-  if (!header?.toLowerCase().startsWith("bearer ")) return null;
-  return container.tokens.authenticate(header.slice(7).trim());
+function bearerToken(req: Request): string | null {
+  const header = firstHeader(req.headers.authorization);
+  if (header?.toLowerCase().startsWith("bearer ")) {
+    const token = header.slice(7).trim();
+    if (token) return token;
+  }
+  const apiKey = firstHeader(req.headers["x-api-key"]);
+  if (apiKey) return apiKey;
+  return null;
+}
+
+function firstHeader(value: string | string[] | undefined): string | null {
+  const header = Array.isArray(value) ? value[0] : value;
+  const token = header?.trim();
+  return token ? token : null;
 }
 
 function json(value: unknown) {

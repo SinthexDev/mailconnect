@@ -34,12 +34,12 @@ if (function_exists('getallheaders')) {
 }
 $hasAuth = false;
 foreach ($headers as $header) {
-    if (stripos($header, 'authorization:') === 0) {
+    if (stripos($header, 'authorization:') === 0 && trim(substr($header, 14)) !== '') {
         $hasAuth = true;
         break;
     }
 }
-$authorization = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+$authorization = incomingAuthorization();
 if (!$hasAuth && $authorization !== '') {
     $headers[] = 'Authorization: ' . $authorization;
 }
@@ -87,3 +87,29 @@ if ($ok === false && !headers_sent()) {
     echo '{"error":"proxy","message":"MailConnect ist nicht erreichbar."}';
 }
 curl_close($ch);
+
+function incomingAuthorization(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_AUTHORIZATION'] ?? '',
+        $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '',
+        getenv('HTTP_AUTHORIZATION') ?: '',
+        getenv('REDIRECT_HTTP_AUTHORIZATION') ?: '',
+    ];
+    if (function_exists('apache_request_headers')) {
+        $apache = apache_request_headers();
+        if (is_array($apache)) {
+            foreach ($apache as $name => $value) {
+                if (strcasecmp((string) $name, 'Authorization') === 0) {
+                    $candidates[] = (string) $value;
+                }
+            }
+        }
+    }
+    foreach ($candidates as $value) {
+        if (trim($value) !== '') {
+            return trim($value);
+        }
+    }
+    return '';
+}

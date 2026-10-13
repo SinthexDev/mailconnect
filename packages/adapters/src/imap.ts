@@ -1,12 +1,15 @@
 import { createHash } from "node:crypto";
 import { ImapFlow, type FetchMessageObject, type MessageStructureObject } from "imapflow";
-import type { FolderCursor, FolderPull, FullMessage, ImapPort, ImapSettings, PullBatch, RemoteMessage } from "@mailconnect/domain";
+import { AppError, type AttachmentFile, type FolderCursor, type FolderPull, type FullMessage, type ImapPort, type ImapSettings, type PullBatch, type RemoteMessage } from "@mailconnect/domain";
+import { listAttachments, MAX_ATTACHMENT_BYTES } from "./attachments.js";
+import { connectionError, missingMailbox } from "./mail-error.js";
+import { uidsFromSearch } from "./uid-set.js";
 
 const CONNECT_MS = 20_000;
 const SNIPPET_BYTES = 4_000;
 
-function clientFor(settings: ImapSettings): ImapFlow {
-  return new ImapFlow({
+function clientFor(settings: ImapSettings): { client: ImapFlow; broken: Promise<never> } {
+  const client = new ImapFlow({
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
@@ -17,21 +20,35 @@ function clientFor(settings: ImapSettings): ImapFlow {
     socketTimeout: 60_000,
     tls: { minVersion: "TLSv1.2" },
   });
+  const broken = new Promise<never>((_, reject) => {
+    client.on("error", (error: unknown) => {
+      const message = error instanceof Error ? error.message : "unbekannt";
+      console.error(`IMAP-Verbindung: ${message}`);
+      reject(error instanceof Error ? error : new Error(message));
+    });
+  });
+  broken.catch(() => undefined);
+  return { client, broken };
 }
 
 async function withClient<T>(settings: ImapSettings, fn: (client: ImapFlow) => Promise<T>): Promise<T> {
-  const client = clientFor(settings);
+  const { client, broken } = clientFor(settings);
   try {
-    await client.connect();
-    return await fn(client);
+    return await Promise.race([
+      (async () => {
+        await client.connect();
+        return await fn(client);
+      })(),
+      broken,
+    ]);
   } catch (error) {
-    throw mailError(error, "IMAP");
+    throw connectionError("IMAP", error);
   } finally {
-    try {
-      await client.logout();
-    } catch {
-      client.close();
-    }
+    await Promise.race([
+      client.logout().catch(() => undefined),
+      new Promise((resolve) => setTimeout(resolve, 4_000)),
+    ]);
+    client.close();
   }
 }
 
@@ -42,8 +59,8 @@ export const imapAdapter: ImapPort = {
     });
   },
 
-  async pull(settings, cursors, limit) {
-    return withClient(settings, async (client) => pullFolders(client, cursors, limit));
+  async pull(settings, cursors, limit, onProgress) {
+    return withClient(settings, async (client) => pullFolders(client, cursors, limit, onProgress));
   },
 
   async fetchMessage(settings, folder, uid) {
@@ -64,7 +81,27 @@ export const imapAdapter: ImapPort = {
           date: toIso(message.envelope?.date),
           text: text || (html ? stripHtml(html) : ""),
           html,
+          attachments: listAttachments(message.bodyStructure),
         } satisfies FullMessage;
+      } finally {
+        lock.release();
+      }
+    });
+  },
+
+  async fetchAttachment(settings, folder, uid, attachmentId) {
+    return withClient(settings, async (client) => {
+      const lock = await client.getMailboxLock(folder);
+      try {
+        const message = await client.fetchOne(String(uid), { uid: true, bodyStructure: true }, { uid: true });
+        if (!message) throw new AppError("no_attachment", "Diesen Anhang gibt es an der Nachricht nicht.", 404);
+        const listed = listAttachments(message.bodyStructure).find((item) => item.id === attachmentId);
+        if (!listed) throw new AppError("no_attachment", "Diesen Anhang gibt es an der Nachricht nicht.", 404);
+        if (listed.size !== null && listed.size > MAX_ATTACHMENT_BYTES) {
+          throw new AppError("attachment_too_large", "Der Anhang ist größer als 15 MB und wird nicht geladen.", 400);
+        }
+        const data = await readBytes(client, uid, attachmentId);
+        return { ...listed, data, size: data.byteLength } satisfies AttachmentFile;
       } finally {
         lock.release();
       }
@@ -72,17 +109,41 @@ export const imapAdapter: ImapPort = {
   },
 };
 
-async function pullFolders(client: ImapFlow, cursors: FolderCursor[], limit: number): Promise<PullBatch> {
+async function pullFolders(
+  client: ImapFlow,
+  cursors: FolderCursor[],
+  limit: number,
+  onProgress?: (pull: FolderPull) => void,
+): Promise<PullBatch> {
   const listed = await client.list();
   const selectable = listed.filter((box) => !box.flags?.has("\\Noselect"));
   const known = new Map(cursors.map((cursor) => [cursor.folder, cursor]));
   const folders: FolderPull[] = [];
   let remaining = limit;
   let caughtUp = true;
+  const emit = (pull: FolderPull) => {
+    onProgress?.(pull);
+    return pull;
+  };
 
   for (const box of selectable) {
     const cursor = known.get(box.path);
-    const lock = await client.getMailboxLock(box.path);
+    let lock: { release: () => void };
+    try {
+      lock = await client.getMailboxLock(box.path);
+    } catch (error) {
+      if (!missingMailbox(error)) throw error;
+      folders.push(emit({
+        folder: box.path,
+        uidValidity: cursor?.uidValidity ?? 0,
+        reset: false,
+        messages: [],
+        caughtUp: true,
+        highestUid: cursor?.lastUid ?? 0,
+        remoteCount: 0,
+      }));
+      continue;
+    }
     try {
       const mailbox = client.mailbox;
       if (!mailbox || typeof mailbox === "boolean") continue;
@@ -90,26 +151,46 @@ async function pullFolders(client: ImapFlow, cursors: FolderCursor[], limit: num
       const highestPossible = Math.max(0, Number(mailbox.uidNext ?? 1) - 1);
       const reset = Boolean(cursor?.uidValidity && cursor.uidValidity !== uidValidity);
       const after = reset || !cursor ? 0 : cursor.lastUid;
+      const remoteCount = Number(mailbox.exists ?? 0);
+      const base = { folder: box.path, uidValidity, remoteCount };
       if (!mailbox.exists || after >= highestPossible) {
-        folders.push({ folder: box.path, uidValidity, reset, messages: [], caughtUp: true, highestUid: after });
+        folders.push(emit({ ...base, reset, messages: [], caughtUp: true, highestUid: after }));
         continue;
       }
       if (remaining <= 0) {
         caughtUp = false;
-        folders.push({ folder: box.path, uidValidity, reset, messages: [], caughtUp: false, highestUid: after });
+        folders.push(emit({ ...base, reset, messages: [], caughtUp: false, highestUid: after }));
         continue;
       }
+      emit({ ...base, reset: false, messages: [], caughtUp: false, highestUid: after });
+      const found = await client.search({ uid: `${after + 1}:*` }, { uid: true, returnOptions: ["ALL"] });
+      const page = uidsFromSearch(found, after, remaining);
+      if (!page) throw new AppError("mailbox_connect", "IMAP: Die Nachrichtensuche hat kein verwertbares Ergebnis geliefert.", 400);
+      const batch = page.uids;
+      const fetched: FetchMessageObject[] = [];
+      if (batch.length > 0) {
+        for await (const msg of client.fetch(batch, fetchQuery(), { uid: true })) fetched.push(msg);
+      }
       const messages: RemoteMessage[] = [];
-      for await (const msg of client.fetch(`${after + 1}:*`, fetchQuery(), { uid: true })) {
-        if (!msg.uid || msg.uid <= after) continue;
-        messages.push(await toRemote(client, msg));
-        if (messages.length >= remaining) break;
+      let first = true;
+      for (const msg of fetched) {
+        const remote = await toRemote(client, msg);
+        messages.push(remote);
+        emit({
+          ...base,
+          reset: first && reset,
+          messages: [remote],
+          caughtUp: false,
+          highestUid: remote.uid,
+        });
+        first = false;
       }
       const highestUid = messages.reduce((max, message) => Math.max(max, message.uid), after);
-      const folderCaughtUp = highestUid >= highestPossible || messages.length === 0;
+      const folderCaughtUp = page.complete || highestUid >= highestPossible;
       if (!folderCaughtUp) caughtUp = false;
       remaining -= messages.length;
-      folders.push({ folder: box.path, uidValidity, reset, messages, caughtUp: folderCaughtUp, highestUid });
+      folders.push({ ...base, reset, messages, caughtUp: folderCaughtUp, highestUid });
+      emit({ ...base, reset: false, messages: [], caughtUp: folderCaughtUp, highestUid });
     } finally {
       lock.release();
     }
@@ -153,7 +234,7 @@ async function toRemote(client: ImapFlow, msg: FetchMessageObject): Promise<Remo
     subject,
     date: toIso(msg.envelope?.date ?? msg.internalDate),
     flags: [...(msg.flags ?? [])],
-    hasAttachments: hasAttachment(msg.bodyStructure),
+    hasAttachments: listAttachments(msg.bodyStructure).length > 0,
     snippet,
     bodyHash: createHash("sha256").update(`${messageId ?? ""}\n${subject}\n${snippet}`).digest("hex"),
   };
@@ -180,10 +261,19 @@ function walk(node: MessageStructureObject, found: TextPart[]): void {
   for (const child of node.childNodes ?? []) walk(child, found);
 }
 
-function hasAttachment(node: MessageStructureObject | undefined): boolean {
-  if (!node) return false;
-  if ((node.disposition ?? "").toLowerCase() === "attachment") return true;
-  return (node.childNodes ?? []).some((child) => hasAttachment(child));
+async function readBytes(client: ImapFlow, uid: number, part: string): Promise<Uint8Array> {
+  const { content } = await client.download(String(uid), part, { uid: true });
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of content) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    size += buffer.length;
+    if (size > MAX_ATTACHMENT_BYTES) {
+      throw new AppError("attachment_too_large", "Der Anhang ist größer als 15 MB und wird nicht geladen.", 400);
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function readPart(client: ImapFlow, uid: number, part: TextPart, maxBytes = 200_000): Promise<string> {
@@ -260,8 +350,3 @@ function normalizeCharset(charset: string | undefined): string {
   return lower;
 }
 
-function mailError(error: unknown, label: string): Error {
-  if (error instanceof Error && error.message.startsWith(`${label}:`)) return error;
-  const raw = error instanceof Error ? error.message : "Verbindung fehlgeschlagen";
-  return new Error(`${label}: ${raw.replace(/\s+/g, " ").slice(0, 180)}`);
-}

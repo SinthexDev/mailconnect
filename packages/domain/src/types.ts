@@ -1,6 +1,6 @@
 export type Role = "admin" | "user";
 
-export type IndexStatus = "idle" | "syncing" | "error" | "disabled";
+export type IndexStatus = "idle" | "syncing" | "paused" | "error" | "disabled";
 
 export type User = {
   id: string;
@@ -50,6 +50,8 @@ export type Mailbox = {
   id: string;
   userId: string;
   displayName: string;
+  description: string;
+  instructions: string;
   email: string;
   providerId: string | null;
   imap: ChannelSettings | null;
@@ -123,11 +125,25 @@ export type FolderPull = {
   messages: RemoteMessage[];
   caughtUp: boolean;
   highestUid: number;
+  remoteCount: number;
+};
+
+export type IndexProgress = {
+  messageTotal: number | null;
+  folderTotal: number;
+  folderDone: number;
 };
 
 export type PullBatch = {
   folders: FolderPull[];
   caughtUp: boolean;
+};
+
+export type MailAttachment = {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number | null;
 };
 
 export type FullMessage = {
@@ -138,6 +154,11 @@ export type FullMessage = {
   date: string | null;
   text: string;
   html: string | null;
+  attachments: MailAttachment[];
+};
+
+export type AttachmentFile = MailAttachment & {
+  data: Uint8Array;
 };
 
 export type OutboundMail = {

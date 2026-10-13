@@ -1,31 +1,35 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, errMsg, type ChannelInput, type Mailbox, type MailboxInput, type Provider, type TestResult } from '../api';
+import { localizeStored, providerNote } from '../i18n';
+import { useI18n } from '../LanguageSwitcher';
 
 interface ChState { enabled: boolean; host: string; port: string; secure: boolean; username: string; password: string }
 const emptyCh = (port: string, secure: boolean): ChState => ({ enabled: false, host: '', port, secure, username: '', password: '' });
 
-function ChannelFields({ label, kind, st, set, hasSaved }: {
+function ChannelFields({ label, kind, st, set, hasSaved, passwordPlaceholder, passwordOptional }: {
   label: string; kind: 'imap' | 'smtp'; st: ChState; set: (p: Partial<ChState>) => void; hasSaved: boolean;
+  passwordPlaceholder?: string; passwordOptional?: boolean;
 }) {
+  const { m } = useI18n();
   return (
     <fieldset className="channel">
       <legend>{label}</legend>
       <label className="check">
         <input type="checkbox" checked={st.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
-        {kind === 'imap' ? 'IMAP aktivieren (Index und Suche)' : 'SMTP aktivieren (Versand)'}
+        {kind === 'imap' ? m.enableImap : m.enableSmtp}
       </label>
       {st.enabled && (
         <div className="grid2">
-          <label>Server<input required value={st.host} onChange={(e) => set({ host: e.target.value })} /></label>
-          <label>Port<input required type="number" min={1} max={65535} value={st.port} onChange={(e) => set({ port: e.target.value })} /></label>
+          <label>{m.server}<input required value={st.host} onChange={(e) => set({ host: e.target.value })} /></label>
+          <label>{m.port}<input required type="number" min={1} max={65535} value={st.port} onChange={(e) => set({ port: e.target.value })} /></label>
           <label className="check span2">
             <input type="checkbox" checked={st.secure} onChange={(e) => set({ secure: e.target.checked })} />
-            Implizites TLS ({kind === 'imap' ? '993' : '465'}); aus = STARTTLS
+            {m.implicitTls(kind === 'imap' ? '993' : '465')}
           </label>
-          <label>Benutzername<input required autoComplete="off" value={st.username} onChange={(e) => set({ username: e.target.value })} /></label>
-          <label>Passwort
-            <input type="password" autoComplete="new-password" required={!hasSaved} placeholder={hasSaved ? 'unverändert' : ''} value={st.password} onChange={(e) => set({ password: e.target.value })} />
+          <label>{m.username}<input required autoComplete="off" value={st.username} onChange={(e) => set({ username: e.target.value })} /></label>
+          <label>{m.password}
+            <input type="password" autoComplete="new-password" required={!passwordOptional && !hasSaved} placeholder={passwordPlaceholder || (hasSaved ? m.unchanged : '')} value={st.password} onChange={(e) => set({ password: e.target.value })} />
           </label>
         </div>
       )}
@@ -35,10 +39,13 @@ function ChannelFields({ label, kind, st, set, hasSaved }: {
 
 export function MailboxFormPage() {
   const { id } = useParams();
+  const { m } = useI18n();
   const nav = useNavigate();
   const [providers, setProviders] = useState<Provider[]>([]);
   const [existing, setExisting] = useState<Mailbox | null>(null);
   const [displayName, setDisplayName] = useState('');
+  const [description, setDescription] = useState('');
+  const [instructions, setInstructions] = useState('');
   const [email, setEmail] = useState('');
   const [providerId, setProviderId] = useState('');
   const [imap, setImap] = useState<ChState>(emptyCh('993', true));
@@ -56,11 +63,11 @@ export function MailboxFormPage() {
   useEffect(() => {
     if (!id) return;
     api<{ mailboxes: Mailbox[] }>('mailboxes').then((r) => {
-      const m = r.mailboxes.find((x) => x.id === id);
-      if (!m) { setErr('Postfach nicht gefunden.'); return; }
-      setExisting(m); setDisplayName(m.displayName); setEmail(m.email); setProviderId(m.providerId || ''); setUserTouched(true);
-      setImap(m.imap ? { enabled: true, host: m.imap.host, port: String(m.imap.port), secure: m.imap.secure, username: m.imap.username, password: '' } : emptyCh('993', true));
-      setSmtp(m.smtp ? { enabled: true, host: m.smtp.host, port: String(m.smtp.port), secure: m.smtp.secure, username: m.smtp.username, password: '' } : emptyCh('587', false));
+      const found = r.mailboxes.find((x) => x.id === id);
+      if (!found) { setErr(m.mailboxMissing); return; }
+      setExisting(found); setDisplayName(found.displayName); setDescription(found.description); setInstructions(found.instructions); setEmail(found.email); setProviderId(found.providerId || ''); setUserTouched(true);
+      setImap(found.imap ? { enabled: true, host: found.imap.host, port: String(found.imap.port), secure: found.imap.secure, username: found.imap.username, password: '' } : emptyCh('993', true));
+      setSmtp(found.smtp ? { enabled: true, host: found.smtp.host, port: String(found.smtp.port), secure: found.smtp.secure, username: found.smtp.username, password: '' } : emptyCh('587', false));
       setLoaded(true);
     }).catch((e) => setErr(errMsg(e)));
   }, [id]);
@@ -87,8 +94,8 @@ export function MailboxFormPage() {
       if (s.password) c.password = s.password;
       return c;
     };
-    const body = { displayName: displayName.trim(), email: email.trim(), providerId, imap: conv(imap), smtp: conv(smtp) };
-    if (!body.imap && !body.smtp) { setErr('Aktiviere mindestens IMAP oder SMTP.'); return null; }
+    const body = { displayName: displayName.trim(), description: description.trim(), instructions: instructions.trim(), email: email.trim(), providerId, imap: conv(imap), smtp: conv(smtp) };
+    if (!body.imap && !body.smtp) { setErr(m.needChannel); return null; }
     return body;
   }
 
@@ -109,50 +116,56 @@ export function MailboxFormPage() {
     setBusy('save'); setErr('');
     try {
       if (id) await api(`mailboxes/${id}`, 'PATCH', body); else await api('mailboxes', 'POST', body);
-      nav('/');
+      nav('/postfaecher');
     } catch (x) { setErr(errMsg(x)); setBusy(''); }
   }
 
   async function remove() {
-    if (!id || !window.confirm('Postfach und zugehörigen Index wirklich entfernen?')) return;
+    if (!id || !window.confirm(m.removeConfirm)) return;
     setBusy('delete');
-    try { await api(`mailboxes/${id}`, 'DELETE'); nav('/'); } catch (x) { setErr(errMsg(x)); setBusy(''); }
+    try { await api(`mailboxes/${id}`, 'DELETE'); nav('/postfaecher'); } catch (x) { setErr(errMsg(x)); setBusy(''); }
   }
 
-  if (!loaded) return <p className="muted">{err || 'Lade …'}</p>;
+  if (!loaded) return <p className="muted">{err || m.loading}</p>;
 
   const line = (name: string, r?: { ok: boolean; error?: string }) => r && (
-    <li className={r.ok ? 'ok' : 'error'}>{name}: {r.ok ? 'Verbindung erfolgreich' : r.error ?? 'fehlgeschlagen'}</li>
+    <li className={r.ok ? 'ok' : 'error'}>{name}: {r.ok ? m.connected : (r.error ? localizeStored(r.error) : m.failed)}</li>
   );
 
   return (
     <>
       <header className="page-head">
         <div>
-          <h1>{existing ? existing.displayName : 'Postfach hinzufügen'}</h1>
-          <p className="muted">IMAP baut den Suchindex auf, SMTP erlaubt Agenten das Senden. Zugangsdaten werden verschlüsselt gespeichert.</p>
+          <h1>{existing ? existing.displayName : m.addTitle}</h1>
+          <p className="muted">{m.formLead}</p>
         </div>
       </header>
       <form className="card form wide" onSubmit={save}>
         <div className="grid2">
-          <label>Anzeigename<input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>
-          <label>E-Mail-Adresse<input type="email" required value={email} onChange={(e) => changeEmail(e.target.value)} /></label>
-          <label className="span2">Anbieter
+          <label>{m.displayName}<input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} /></label>
+          <label>{m.email}<input type="email" required value={email} onChange={(e) => changeEmail(e.target.value)} /></label>
+          <label className="span2">{m.description}
+            <textarea maxLength={500} rows={3} placeholder={m.descriptionPlaceholder} value={description} onChange={(e) => setDescription(e.target.value)} />
+          </label>
+          <label className="span2">{m.instructions}
+            <textarea maxLength={2000} rows={4} placeholder={m.instructionsPlaceholder} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+          </label>
+          <label className="span2">{m.provider}
             <select required value={providerId} onChange={(e) => pickProvider(e.target.value)}>
-              <option value="" disabled>Anbieter wählen</option>
+              <option value="" disabled>{m.chooseProvider}</option>
               {providers.map((p) => <option key={p.id} value={p.id}>{p.name}{p.region ? ` (${p.region})` : ''}</option>)}
             </select>
           </label>
         </div>
-        {provider?.note && <p className="note">{provider.note}</p>}
-        <ChannelFields label="Eingang (IMAP)" kind="imap" st={imap} set={(p) => { if (p.username !== undefined) setUserTouched(true); setImap((s) => ({ ...s, ...p })); }} hasSaved={!!existing?.imap} />
-        <ChannelFields label="Ausgang (SMTP)" kind="smtp" st={smtp} set={(p) => { if (p.username !== undefined) setUserTouched(true); setSmtp((s) => ({ ...s, ...p })); }} hasSaved={!!existing?.smtp} />
+        {provider?.note && <p className="note">{providerNote(provider.id, provider.note)}</p>}
+        <ChannelFields label={m.imapLegend} kind="imap" st={imap} set={(p) => { if (p.username !== undefined) setUserTouched(true); setImap((s) => ({ ...s, ...p })); }} hasSaved={!!existing?.imap} />
+        <ChannelFields label={m.smtpLegend} kind="smtp" st={smtp} set={(p) => { if (p.username !== undefined) setUserTouched(true); setSmtp((s) => ({ ...s, ...p })); }} hasSaved={!!existing?.smtp} passwordOptional={imap.enabled && (imap.password.length > 0 || !!existing?.imap)} passwordPlaceholder={imap.enabled && (imap.password || !existing?.smtp) ? m.smtpLikeImap : undefined} />
         {result && <ul className="results" aria-live="polite">{line('IMAP', result.imap)}{line('SMTP', result.smtp)}</ul>}
         {err && <p className="error" role="alert">{err}</p>}
         <div className="actions">
-          <button type="button" className="btn" disabled={!!busy} onClick={() => void test()}>{busy === 'test' ? 'Teste …' : 'Verbindung testen'}</button>
-          <button type="submit" className="btn primary" disabled={!!busy}>{busy === 'save' ? 'Speichere …' : 'Speichern'}</button>
-          {id && <button type="button" className="btn danger" disabled={!!busy} onClick={() => void remove()}>Entfernen</button>}
+          <button type="button" className="btn" disabled={!!busy} onClick={() => void test()}>{busy === 'test' ? m.testing : m.testConnection}</button>
+          <button type="submit" className="btn primary" disabled={!!busy}>{busy === 'save' ? m.saving : m.save}</button>
+          {id && <button type="button" className="btn danger" disabled={!!busy} onClick={() => void remove()}>{m.remove}</button>}
         </div>
       </form>
     </>

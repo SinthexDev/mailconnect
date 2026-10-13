@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { OutboundMail, SmtpPort, SmtpSettings } from "@mailconnect/domain";
+import { connectionError } from "./mail-error.js";
 
 function transport(settings: SmtpSettings) {
   return nodemailer.createTransport({
@@ -15,18 +16,13 @@ function transport(settings: SmtpSettings) {
   });
 }
 
-function mailError(error: unknown): Error {
-  const raw = error instanceof Error ? error.message : "Verbindung fehlgeschlagen";
-  return new Error(`SMTP: ${raw.replace(/\s+/g, " ").slice(0, 180)}`);
-}
-
 export const smtpAdapter: SmtpPort = {
   async test(settings) {
     const client = transport(settings);
     try {
       await client.verify();
     } catch (error) {
-      throw mailError(error);
+      throw connectionError("SMTP", error);
     } finally {
       client.close();
     }
@@ -45,7 +41,7 @@ export const smtpAdapter: SmtpPort = {
         html: message.html,
       });
     } catch (error) {
-      throw mailError(error);
+      throw connectionError("SMTP", error);
     } finally {
       client.close();
     }

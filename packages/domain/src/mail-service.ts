@@ -58,6 +58,21 @@ export class MailService {
     return { ...full, indexed };
   }
 
+  async readAttachment(user: PublicUser, messageId: string, attachmentId: string) {
+    if (!/^\d+(\.\d+)*$/.test(attachmentId)) throw notFound("Diesen Anhang gibt es an der Nachricht nicht.");
+    const indexed = this.getIndexed(user, messageId);
+    const mailbox = this.owned(user, indexed.mailboxId);
+    if (!mailbox.imap) throw new AppError("no_imap", "Dieses Konto hat kein IMAP.", 400);
+    const blob = this.credentials.get(mailbox.id, "imap");
+    if (!blob) throw new AppError("missing_secret", "IMAP-Zugangsdaten fehlen.", 500);
+    return this.imap.fetchAttachment(
+      { ...mailbox.imap, password: this.vault.decrypt(blob) },
+      indexed.folder,
+      indexed.uid,
+      attachmentId,
+    );
+  }
+
   async send(user: PublicUser, input: SendInput): Promise<void> {
     const mailbox = this.owned(user, input.mailboxId);
     if (!mailbox.smtp) throw new AppError("no_smtp", "Dieses Konto hat kein SMTP.", 400);

@@ -25,7 +25,7 @@ export type Container = {
 };
 
 export function createContainer(config: AppConfig): Container {
-  const db = new SqliteDatabase(config.databasePath);
+  const db = new SqliteDatabase(config.databasePath, config.masterKey);
   const clock = { now: () => new Date().toISOString() };
   const ids = { newId: () => randomUUID() };
   const secrets = createSecretHasher(config.sessionSecret);

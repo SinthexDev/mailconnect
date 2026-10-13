@@ -17,6 +17,8 @@ import type {
 
 export type MailboxDraft = {
   displayName: string;
+  description: string;
+  instructions: string;
   email: string;
   providerId: string | null;
   imap: ChannelInput | null;
@@ -78,32 +80,30 @@ export class MailboxService {
 
   async testDraft(draft: MailboxDraft, existing?: Mailbox): Promise<ConnectionTestResult> {
     const imap = cleanChannel(draft.imap, !existing?.imap);
-    const smtp = cleanChannel(draft.smtp, !existing?.smtp);
+    const smtp = cleanChannel(draft.smtp, false);
     if (!imap && !smtp) {
       throw new AppError("empty_mailbox", "IMAP oder SMTP muss gesetzt sein.", 400);
     }
+    const passwords = this.passwordsFor(imap, smtp, existing);
     const result: ConnectionTestResult = {};
-    if (imap) {
-      const password = imap.password || (existing ? this.readPassword(existing.id, "imap") : "");
-      result.imap = await this.try("IMAP", () => this.imap.test({ ...imap, password }));
-    }
-    if (smtp) {
-      const password = smtp.password || (existing ? this.readPassword(existing.id, "smtp") : "");
-      result.smtp = await this.try("SMTP", () => this.smtp.test({ ...smtp, password }));
-    }
+    if (imap) result.imap = await this.try("IMAP", () => this.imap.test({ ...imap, password: passwords.imap }));
+    if (smtp) result.smtp = await this.try("SMTP", () => this.smtp.test({ ...smtp, password: passwords.smtp }));
     return result;
   }
 
   async create(user: PublicUser, draft: MailboxDraft): Promise<Mailbox> {
     const imap = cleanChannel(draft.imap, true);
-    const smtp = cleanChannel(draft.smtp, true);
+    const smtp = cleanChannel(draft.smtp, false);
     if (!imap && !smtp) throw new AppError("empty_mailbox", "IMAP oder SMTP muss gesetzt sein.", 400);
-    await this.assertConnections(imap, smtp);
+    const passwords = this.passwordsFor(imap, smtp);
+    await this.assertConnections(imap, smtp, passwords);
     const now = this.clock.now();
     const mailbox: Mailbox = {
       id: this.ids.newId(),
       userId: user.id,
       displayName: this.displayName(draft.displayName, draft.email),
+      description: this.description(draft.description),
+      instructions: this.instructions(draft.instructions),
       email: assertEmail(draft.email),
       providerId: draft.providerId,
       imap: imap ? stripPassword(imap) : null,
@@ -118,7 +118,7 @@ export class MailboxService {
       updatedAt: now,
     };
     this.mailboxes.insert(mailbox);
-    this.storeSecrets(mailbox.id, imap, smtp);
+    this.storeSecrets(mailbox.id, imap, smtp, passwords);
     if (imap) this.onSaved(mailbox.id);
     return mailbox;
   }
@@ -126,19 +126,17 @@ export class MailboxService {
   async update(user: PublicUser, id: string, draft: MailboxDraft): Promise<Mailbox> {
     const existing = this.getOwned(user, id);
     const imap = cleanChannel(draft.imap, !existing.imap);
-    const smtp = cleanChannel(draft.smtp, !existing.smtp);
+    const smtp = cleanChannel(draft.smtp, false);
     if (!imap && !smtp) throw new AppError("empty_mailbox", "IMAP oder SMTP muss gesetzt sein.", 400);
-    const imapPassword = imap ? imap.password || this.readPassword(existing.id, "imap") : "";
-    const smtpPassword = smtp ? smtp.password || this.readPassword(existing.id, "smtp") : "";
-    if (imap && !imapPassword) throw new AppError("missing_password", "IMAP-Passwort fehlt.", 400);
-    if (smtp && !smtpPassword) throw new AppError("missing_password", "SMTP-Passwort fehlt.", 400);
-    if (imap) await this.imap.test({ ...imap, password: imapPassword });
-    if (smtp) await this.smtp.test({ ...smtp, password: smtpPassword });
+    const passwords = this.passwordsFor(imap, smtp, existing);
+    await this.assertConnections(imap, smtp, passwords);
 
     const imapChanged = !sameChannel(existing.imap, imap);
     const mailbox: Mailbox = {
       ...existing,
       displayName: this.displayName(draft.displayName, draft.email),
+      description: this.description(draft.description),
+      instructions: this.instructions(draft.instructions),
       email: assertEmail(draft.email),
       providerId: draft.providerId,
       imap: imap ? stripPassword(imap) : null,
@@ -150,9 +148,9 @@ export class MailboxService {
       updatedAt: this.clock.now(),
     };
     this.mailboxes.update(mailbox);
-    if (imap) this.credentials.upsert(id, "imap", this.vault.encrypt(imapPassword));
+    if (imap) this.credentials.upsert(id, "imap", this.vault.encrypt(passwords.imap));
     else this.credentials.delete(id, "imap");
-    if (smtp) this.credentials.upsert(id, "smtp", this.vault.encrypt(smtpPassword));
+    if (smtp) this.credentials.upsert(id, "smtp", this.vault.encrypt(passwords.smtp));
     else this.credentials.delete(id, "smtp");
     if (!imap) {
       this.messages.deleteMailboxData(id);
@@ -175,14 +173,28 @@ export class MailboxService {
     if (!ok) throw notFound("Mailkonto nicht gefunden.");
   }
 
-  private async assertConnections(imap: ChannelInput | null, smtp: ChannelInput | null): Promise<void> {
+  private passwordsFor(imap: ChannelInput | null, smtp: ChannelInput | null, existing?: Mailbox): { imap: string; smtp: string } {
+    const typedImap = imap?.password ?? "";
+    const typedSmtp = smtp?.password ?? "";
+    const storedImap = existing && imap ? this.readPassword(existing.id, "imap") : "";
+    const storedSmtp = existing?.smtp && smtp ? this.readPassword(existing.id, "smtp") : "";
+    const imapPassword = typedImap || storedImap;
+    const smtpPassword = typedSmtp || typedImap || storedSmtp || (imap ? storedImap : "");
+    return { imap: imapPassword, smtp: smtpPassword };
+  }
+
+  private async assertConnections(
+    imap: ChannelInput | null,
+    smtp: ChannelInput | null,
+    passwords: { imap: string; smtp: string },
+  ): Promise<void> {
     if (imap) {
-      if (!imap.password) throw new AppError("missing_password", "IMAP-Passwort fehlt.", 400);
-      await this.imap.test({ ...imap, password: imap.password });
+      if (!passwords.imap) throw new AppError("missing_password", "IMAP-Passwort fehlt.", 400);
+      await this.imap.test({ ...imap, password: passwords.imap });
     }
     if (smtp) {
-      if (!smtp.password) throw new AppError("missing_password", "SMTP-Passwort fehlt.", 400);
-      await this.smtp.test({ ...smtp, password: smtp.password });
+      if (!passwords.smtp) throw new AppError("missing_password", "SMTP-Passwort fehlt. Leer lassen übernimmt das IMAP-Passwort.", 400);
+      await this.smtp.test({ ...smtp, password: passwords.smtp });
     }
   }
 
@@ -192,9 +204,28 @@ export class MailboxService {
     return this.vault.decrypt(blob);
   }
 
-  private storeSecrets(mailboxId: string, imap: ChannelInput | null, smtp: ChannelInput | null): void {
-    if (imap?.password) this.credentials.upsert(mailboxId, "imap", this.vault.encrypt(imap.password));
-    if (smtp?.password) this.credentials.upsert(mailboxId, "smtp", this.vault.encrypt(smtp.password));
+  private storeSecrets(
+    mailboxId: string,
+    imap: ChannelInput | null,
+    smtp: ChannelInput | null,
+    passwords: { imap: string; smtp: string },
+  ): void {
+    if (imap && passwords.imap) this.credentials.upsert(mailboxId, "imap", this.vault.encrypt(passwords.imap));
+    if (smtp && passwords.smtp) this.credentials.upsert(mailboxId, "smtp", this.vault.encrypt(passwords.smtp));
+  }
+
+  private description(value: string): string {
+    return this.boundedText(value, 500, "invalid_description", "Die Beschreibung ist zu lang.");
+  }
+
+  private instructions(value: string): string {
+    return this.boundedText(value, 2000, "invalid_instructions", "Die Handlungsanweisungen sind zu lang.");
+  }
+
+  private boundedText(value: string, max: number, code: string, message: string): string {
+    const trimmed = value.trim();
+    if (trimmed.length > max) throw new AppError(code, message, 400);
+    return trimmed;
   }
 
   private displayName(name: string, email: string): string {

@@ -15,7 +15,7 @@ await esbuild.build({
   format: "cjs",
   target: "node22",
   outfile: join(release, "server.cjs"),
-  external: ["better-sqlite3", "argon2"],
+  external: ["better-sqlite3-multiple-ciphers", "argon2"],
   sourcemap: true,
   legalComments: "none",
   logLevel: "info",
@@ -35,7 +35,11 @@ writeFileSync(
       description: "MailConnect runtime. Native dependencies only.",
       dependencies: {
         argon2: "0.44.0",
-        "better-sqlite3": "12.11.1",
+        "better-sqlite3-multiple-ciphers": "13.0.3",
+      },
+      allowScripts: {
+        "argon2@0.44.0": true,
+        "better-sqlite3-multiple-ciphers@13.0.3": true,
       },
     },
     null,

@@ -18,6 +18,8 @@ const channelSchema = z.object({
 
 const draftSchema = z.object({
   displayName: z.string().max(120).optional().default(""),
+  description: z.string().max(500).optional().default(""),
+  instructions: z.string().max(2000).optional().default(""),
   email: z.string().trim().min(3).max(320),
   providerId: z.string().max(80).nullable().optional().default(null),
   imap: channelSchema.nullable().optional().default(null),
@@ -157,7 +159,8 @@ function mountApi(router: express.Router, container: Container): void {
   });
 
   router.get("/api/mailboxes", (req, res) => {
-    res.json({ mailboxes: container.mailboxes.list(currentUser(container, req)).map(publicMailbox) });
+    const mailboxes = container.mailboxes.list(currentUser(container, req));
+    res.json({ mailboxes: mailboxes.map((mailbox) => publicMailbox(mailbox, container.sync.progress(mailbox.id))) });
   });
 
   router.post("/api/mailboxes/test", asyncRoute(async (req, res) => {
@@ -168,12 +171,12 @@ function mountApi(router: express.Router, container: Container): void {
 
   router.post("/api/mailboxes", asyncRoute(async (req, res) => {
     const mailbox = await container.mailboxes.create(currentUser(container, req), draftSchema.parse(req.body));
-    res.status(201).json({ mailbox: publicMailbox(mailbox) });
+    res.status(201).json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
   }));
 
   router.patch("/api/mailboxes/:id", asyncRoute(async (req, res) => {
     const mailbox = await container.mailboxes.update(currentUser(container, req), req.params.id, draftSchema.parse(req.body));
-    res.json({ mailbox: publicMailbox(mailbox) });
+    res.json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
   }));
 
   router.delete("/api/mailboxes/:id", (req, res) => {
@@ -192,7 +195,12 @@ function mountApi(router: express.Router, container: Container): void {
   router.post("/api/mailboxes/:id/sync", (req, res) => {
     const mailbox = container.sync.enqueue(currentUser(container, req), req.params.id);
     if (mailbox.imap) container.indexer.nudge(mailbox.id);
-    res.status(202).json({ mailbox: publicMailbox(mailbox) });
+    res.status(202).json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
+  });
+
+  router.post("/api/mailboxes/:id/sync/stop", (req, res) => {
+    const mailbox = container.sync.pause(currentUser(container, req), req.params.id);
+    res.json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
   });
 
   router.get("/api/mailboxes/:id/folders", (req, res) => {
@@ -240,7 +248,19 @@ function mountApi(router: express.Router, container: Container): void {
       date: message.date,
       text: message.text.slice(0, 100_000),
       html: message.html ? message.html.slice(0, 200_000) : null,
+      attachments: message.attachments,
     });
+  }));
+
+  router.get("/api/messages/:id/attachments/:part", asyncRoute(async (req, res) => {
+    const file = await container.mail.readAttachment(currentUser(container, req), req.params.id, req.params.part);
+    const bytes = Buffer.from(file.data);
+    const ascii = file.filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
+    res.setHeader("Content-Type", file.contentType || "application/octet-stream");
+    res.setHeader("Content-Length", String(bytes.byteLength));
+    res.setHeader("Content-Disposition", `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.end(bytes);
   }));
 
   router.post("/api/messages/send", asyncRoute(async (req, res) => {
@@ -282,16 +302,21 @@ function currentUser(container: Container, req: Request): PublicUser {
   return user;
 }
 
-function publicMailbox(mailbox: Mailbox) {
+function publicMailbox(mailbox: Mailbox, progress: { messageTotal: number | null; folderTotal: number; folderDone: number }) {
   return {
     id: mailbox.id,
     displayName: mailbox.displayName,
+    description: mailbox.description,
+    instructions: mailbox.instructions,
     email: mailbox.email,
     providerId: mailbox.providerId,
     imap: mailbox.imap,
     smtp: mailbox.smtp,
     indexStatus: mailbox.indexStatus,
     indexedCount: mailbox.indexedCount,
+    messageTotal: progress.messageTotal,
+    folderTotal: progress.folderTotal,
+    folderDone: progress.folderDone,
     lastSyncAt: mailbox.lastSyncAt,
     lastError: mailbox.lastError,
     createdAt: mailbox.createdAt,

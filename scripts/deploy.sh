@@ -62,18 +62,37 @@ npm install --omit=dev
 set -a
 source "$ROOT/.env"
 set +a
-"$NODE/node" server.cjs bootstrap-admin
-grep -v '^MAILCONNECT_ADMIN_' "$ROOT/.env" > "$ROOT/.env.tmp"
-mv "$ROOT/.env.tmp" "$ROOT/.env"
-chmod 600 "$ROOT/.env"
+if grep -q '^MAILCONNECT_ADMIN_EMAIL=' "$ROOT/.env"; then
+  "$NODE/node" server.cjs bootstrap-admin
+  grep -v '^MAILCONNECT_ADMIN_' "$ROOT/.env" > "$ROOT/.env.tmp"
+  mv "$ROOT/.env.tmp" "$ROOT/.env"
+  chmod 600 "$ROOT/.env"
+fi
 if ! crontab -l 2>/dev/null | grep -q '/mailconnect/ensure.sh'; then
   (crontab -l 2>/dev/null; echo '* * * * * /var/www/vhosts/sinthex.de/mailconnect/ensure.sh') | crontab -
 fi
 # Restart so a new server.cjs is picked up.
 if [[ -f "$ROOT/var/mailconnect.pid" ]]; then
-  kill "$(cat "$ROOT/var/mailconnect.pid")" 2>/dev/null || true
+  old="$(cat "$ROOT/var/mailconnect.pid")"
+  kill "$old" 2>/dev/null || true
   rm -f "$ROOT/var/mailconnect.pid"
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if ! kill -0 "$old" 2>/dev/null; then
+      break
+    fi
+    sleep 0.4
+  done
+  if kill -0 "$old" 2>/dev/null; then
+    kill -9 "$old" 2>/dev/null || true
+    sleep 0.2
+  fi
 fi
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ! curl -fsS --max-time 1 "http://127.0.0.1:3911/mailconnect/api/health" >/dev/null; then
+    break
+  fi
+  sleep 0.4
+done
 "$ROOT/ensure.sh"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if curl -fsS --max-time 2 "http://127.0.0.1:3911/mailconnect/api/health" >/dev/null; then

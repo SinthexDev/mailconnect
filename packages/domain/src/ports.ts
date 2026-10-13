@@ -5,6 +5,8 @@ import type {
   EncryptedBlob,
   FolderCursor,
   FolderPull,
+  IndexProgress,
+  AttachmentFile,
   FullMessage,
   PullBatch,
   IndexedMessage,
@@ -92,6 +94,7 @@ export interface MessageIndexRepository {
   listCursors(mailboxId: string): FolderCursor[];
   applyFolderPull(mailboxId: string, pull: FolderPull, syncedAt: string): void;
   count(mailboxId: string): number;
+  progress(mailboxId: string): IndexProgress;
   search(query: SearchQuery): IndexedMessage[];
   findById(id: string, userId: string): IndexedMessage | null;
   listFolders(mailboxId: string, userId: string): FolderCursor[];
@@ -112,8 +115,9 @@ export type SmtpSettings = ChannelSettings & { password: string };
 
 export interface ImapPort {
   test(settings: ImapSettings): Promise<void>;
-  pull(settings: ImapSettings, cursors: FolderCursor[], limit: number): Promise<PullBatch>;
+  pull(settings: ImapSettings, cursors: FolderCursor[], limit: number, onProgress?: (pull: FolderPull) => void): Promise<PullBatch>;
   fetchMessage(settings: ImapSettings, folder: string, uid: number): Promise<FullMessage>;
+  fetchAttachment(settings: ImapSettings, folder: string, uid: number, attachmentId: string): Promise<AttachmentFile>;
 }
 
 export interface SmtpPort {
