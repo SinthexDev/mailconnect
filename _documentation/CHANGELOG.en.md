@@ -1,5 +1,30 @@
 # MailConnect – Changes
 
+## Version 1.1.26 - 15 October 2026
+### Button links reach the agent
+
+A password-reset mail often keeps the link only in the HTML button. The agent saw the sentence, but not the address.
+
+#### Fixed
+
+- **Reading**: `get_message` returns `links` with the target and the label. When the address is missing from the plain text, it is appended. Search shows it as a link under the message.
+
+---
+
+## Version 1.1.25 - 15 October 2026
+### The agent works inside the mailbox
+
+Search, reading, and sending were already there. Deleting, moving, flagging, and the folders themselves only worked on the mail server.
+
+#### New features
+
+- **Messages**: `delete_messages` deletes mail, `move_messages` and `copy_messages` put it in another folder. `set_message_flags` sets, adds, or removes marks such as seen or flagged. `append_message` stores a message in a folder, for example Drafts.
+- **Folders**: `list_folders` and `list_imap_folders` can list only the direct subfolders. Creating, renaming, deleting, and subscribing each have a tool. `folder_status` reports the count and the unseen messages.
+- **Search**: `search_messages` filters by a flag. `search_imap` searches on the server and returns UIDs.
+- **Index**: After the change, folder, UID, and flags in the search index match the server.
+
+---
+
 ## Version 1.1.24 - 9 October 2026
 ### The agent token reaches the connector
 

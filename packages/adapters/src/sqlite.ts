@@ -1,6 +1,7 @@
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3-multiple-ciphers";
+import { rewriteFolderPath } from "@mailconnect/domain";
 import type {
   ApiToken,
   ApiTokenRepository,
@@ -17,6 +18,9 @@ import type {
   MessageIndexRepository,
   SearchQuery,
   SessionRepository,
+  StoredAppend,
+  StoredFlag,
+  UidRelocation,
   User,
   UserRepository,
 } from "@mailconnect/domain";
@@ -199,6 +203,7 @@ type MessageRow = {
   flags: string;
   has_attachments: number;
   snippet: string;
+  body_hash: string | null;
 };
 
 function channel(
@@ -682,6 +687,10 @@ class MailboxRepo implements MailboxRepository {
       )
       .run(patch.indexStatus, patch.indexedCount, patch.lastSyncAt, patch.lastError, patch.errorStreak, patch.retryAt, patch.updatedAt, id);
   }
+
+  setIndexedCount(id: string, indexedCount: number, updatedAt: string): void {
+    this.db.prepare("UPDATE mailboxes SET indexed_count = ?, updated_at = ? WHERE id = ?").run(indexedCount, updatedAt, id);
+  }
 }
 
 class CredentialRepo implements CredentialRepository {
@@ -858,6 +867,10 @@ class MessageRepo implements MessageIndexRepository {
       sql += " AND m.rowid IN (SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?)";
       params.push(query.text);
     }
+    if (query.flag) {
+      sql += " AND EXISTS (SELECT 1 FROM json_each(m.flags) WHERE json_each.value = ?)";
+      params.push(query.flag);
+    }
     sql += " ORDER BY m.date DESC LIMIT ?";
     params.push(query.limit);
     const rows = this.db.prepare(sql).all(...params) as MessageRow[];
@@ -906,6 +919,166 @@ class MessageRepo implements MessageIndexRepository {
       errors: row.errors ?? 0,
       lastSyncAt: row.last_sync_at,
     };
+  }
+
+  findInFolder(mailboxId: string, folder: string, uids: number[]): IndexedMessage[] {
+    if (uids.length === 0) return [];
+    const marks = uids.map(() => "?").join(", ");
+    const rows = this.db.prepare(`SELECT * FROM messages WHERE mailbox_id = ? AND folder = ? AND uid IN (${marks})`).all(mailboxId, folder, ...uids) as MessageRow[];
+    return rows.map(mapMessage);
+  }
+
+  applyDeletion(mailboxId: string, folder: string, uids: number[]): number {
+    const remove = this.db.prepare("DELETE FROM messages WHERE mailbox_id = ? AND folder = ? AND uid = ?");
+    return this.db.transaction(() => {
+      for (const uid of uids) remove.run(mailboxId, folder, uid);
+      this.adjustRemoteCount(mailboxId, folder, -uids.length);
+      return this.refreshIndexedCounts(mailboxId);
+    })();
+  }
+
+  applyMove(mailboxId: string, source: string, destination: string, moves: UidRelocation[], at: string): number {
+    const remove = this.db.prepare("DELETE FROM messages WHERE mailbox_id = ? AND folder = ? AND uid = ?");
+    const relocate = this.db.prepare("UPDATE messages SET folder = ?, uid = ? WHERE mailbox_id = ? AND folder = ? AND uid = ?");
+    return this.db.transaction(() => {
+      this.ensureFolder(mailboxId, destination, at);
+      for (const move of moves) {
+        if (move.destinationUid === null) remove.run(mailboxId, source, move.uid);
+        else relocate.run(destination, move.destinationUid, mailboxId, source, move.uid);
+      }
+      this.adjustRemoteCount(mailboxId, source, -moves.length);
+      this.adjustRemoteCount(mailboxId, destination, moves.length);
+      return this.refreshIndexedCounts(mailboxId);
+    })();
+  }
+
+  applyCopy(mailboxId: string, source: string, destination: string, moves: UidRelocation[], at: string): number {
+    return this.db.transaction(() => {
+      this.ensureFolder(mailboxId, destination, at);
+      for (const move of moves) {
+        if (move.destinationUid !== null) this.duplicateByUid(mailboxId, source, move.uid, destination, move.destinationUid);
+      }
+      this.adjustRemoteCount(mailboxId, destination, moves.length);
+      return this.refreshIndexedCounts(mailboxId);
+    })();
+  }
+
+  applyFlags(mailboxId: string, folder: string, updates: StoredFlag[]): void {
+    const update = this.db.prepare("UPDATE messages SET flags = ? WHERE mailbox_id = ? AND folder = ? AND uid = ?");
+    this.db.transaction(() => {
+      for (const item of updates) update.run(JSON.stringify(item.flags), mailboxId, folder, item.uid);
+    })();
+  }
+
+  applyAppend(mailboxId: string, message: StoredAppend, at: string): number {
+    const insert = this.db.prepare(
+      `INSERT INTO messages (
+         id, mailbox_id, folder, uid, message_id, thread_id, from_addr, to_addr, cc_addr,
+         subject, date, flags, has_attachments, snippet, body_hash
+       ) VALUES (?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, ?, ?, 0, ?, NULL)`,
+    );
+    return this.db.transaction(() => {
+      this.ensureFolder(mailboxId, message.folder, at);
+      insert.run(
+        cryptoId(),
+        mailboxId,
+        message.folder,
+        message.uid,
+        message.from,
+        message.to,
+        message.cc,
+        message.subject,
+        message.date,
+        JSON.stringify(message.flags),
+        message.snippet,
+      );
+      this.adjustRemoteCount(mailboxId, message.folder, 1);
+      return this.refreshIndexedCounts(mailboxId);
+    })();
+  }
+
+  rewriteFolders(mailboxId: string, from: string, to: string, delimiter: string): void {
+    const folders = this.db.prepare("SELECT folder FROM folder_sync WHERE mailbox_id = ?").all(mailboxId) as Array<{ folder: string }>;
+    const renames = folders.flatMap((row) => {
+      const next = rewriteFolderPath(row.folder, from, to, delimiter);
+      return next && next !== row.folder ? [{ from: row.folder, to: next }] : [];
+    });
+    renames.sort((left, right) => right.from.length - left.from.length);
+    const updateFolder = this.db.prepare("UPDATE folder_sync SET folder = ? WHERE mailbox_id = ? AND folder = ?");
+    const messages = this.db.prepare("SELECT id, folder FROM messages WHERE mailbox_id = ?").all(mailboxId) as Array<{ id: string; folder: string }>;
+    const updateMessage = this.db.prepare("UPDATE messages SET folder = ? WHERE id = ?");
+    this.db.transaction(() => {
+      for (const rename of renames) updateFolder.run(rename.to, mailboxId, rename.from);
+      for (const message of messages) {
+        const next = rewriteFolderPath(message.folder, from, to, delimiter);
+        if (next && next !== message.folder) updateMessage.run(next, message.id);
+      }
+    })();
+  }
+
+  removeFolder(mailboxId: string, folder: string): number {
+    return this.db.transaction(() => {
+      this.db.prepare("DELETE FROM messages WHERE mailbox_id = ? AND folder = ?").run(mailboxId, folder);
+      this.db.prepare("DELETE FROM folder_sync WHERE mailbox_id = ? AND folder = ?").run(mailboxId, folder);
+      return this.refreshIndexedCounts(mailboxId);
+    })();
+  }
+
+  ensureFolder(mailboxId: string, folder: string, at: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO folder_sync (mailbox_id, folder, uid_validity, last_uid, indexed_count, remote_count, last_sync_at, status, last_error)
+         VALUES (?, ?, NULL, 0, 0, 0, ?, 'idle', NULL)
+         ON CONFLICT (mailbox_id, folder) DO NOTHING`,
+      )
+      .run(mailboxId, folder, at);
+  }
+
+  private adjustRemoteCount(mailboxId: string, folder: string, delta: number): void {
+    this.db
+      .prepare("UPDATE folder_sync SET remote_count = MAX(0, remote_count + ?) WHERE mailbox_id = ? AND folder = ?")
+      .run(delta, mailboxId, folder);
+  }
+
+  private refreshIndexedCounts(mailboxId: string): number {
+    this.db
+      .prepare(
+        `UPDATE folder_sync SET indexed_count = (
+           SELECT COUNT(*) FROM messages
+           WHERE messages.mailbox_id = folder_sync.mailbox_id AND messages.folder = folder_sync.folder
+         ) WHERE mailbox_id = ?`,
+      )
+      .run(mailboxId);
+    return this.count(mailboxId);
+  }
+
+  private duplicateByUid(mailboxId: string, source: string, uid: number, destination: string, destinationUid: number): void {
+    const row = this.db.prepare("SELECT * FROM messages WHERE mailbox_id = ? AND folder = ? AND uid = ?").get(mailboxId, source, uid) as MessageRow | undefined;
+    if (!row) return;
+    this.db
+      .prepare(
+        `INSERT INTO messages (
+           id, mailbox_id, folder, uid, message_id, thread_id, from_addr, to_addr, cc_addr,
+           subject, date, flags, has_attachments, snippet, body_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        cryptoId(),
+        mailboxId,
+        destination,
+        destinationUid,
+        row.message_id,
+        row.thread_id,
+        row.from_addr,
+        row.to_addr,
+        row.cc_addr,
+        row.subject,
+        row.date,
+        row.flags,
+        row.has_attachments,
+        row.snippet,
+        row.body_hash,
+      );
   }
 
   deleteMailboxData(mailboxId: string): void {

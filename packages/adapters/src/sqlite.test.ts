@@ -154,3 +154,103 @@ test("adds a mailbox description to an existing database", () => {
   assert.equal(db.mailboxes.findById("old-box")?.instructions, "");
   db.close();
 });
+
+test("index follows folder moves, copies, flags and renames", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "mailconnect-"));
+  const db = new SqliteDatabase(join(dir, "test.sqlite"), randomBytes(32));
+  const auth = new AuthService(
+    db.users,
+    db.invites,
+    db.sessions,
+    passwordHasher,
+    createSecretHasher("x".repeat(40)),
+    { newId: () => crypto.randomUUID() },
+    { now: () => new Date().toISOString() },
+  );
+  const admin = await auth.bootstrapAdmin("admin@example.com", "correct-horse-battery");
+  const now = new Date().toISOString();
+  db.mailboxes.insert({
+    id: "box-1",
+    userId: admin.id,
+    displayName: "Arbeit",
+    description: "",
+    instructions: "",
+    email: "admin@example.com",
+    providerId: null,
+    imap: { host: "imap.example", port: 993, secure: true, username: "admin@example.com" },
+    smtp: null,
+    indexStatus: "idle",
+    indexedCount: 0,
+    lastSyncAt: null,
+    lastError: null,
+    errorStreak: 0,
+    retryAt: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  const message = (uid: number, folderSubject: string, flags: string[]) => ({
+    uid,
+    messageId: `${uid}@example`,
+    threadId: null,
+    from: "Ada <ada@example.com>",
+    to: "admin@example.com",
+    cc: "",
+    subject: folderSubject,
+    date: now,
+    flags,
+    hasAttachments: false,
+    snippet: folderSubject,
+    bodyHash: null,
+  });
+  db.messages.applyFolderPull("box-1", {
+    folder: "INBOX",
+    uidValidity: 1,
+    reset: false,
+    caughtUp: true,
+    highestUid: 2,
+    remoteCount: 2,
+    messages: [message(1, "Wichtig", ["\\Flagged"]), message(2, "Rechnung", ["\\Seen"])],
+  }, now);
+  db.messages.applyFolderPull("box-1", {
+    folder: "Projects/2024",
+    uidValidity: 1,
+    reset: false,
+    caughtUp: true,
+    highestUid: 3,
+    remoteCount: 1,
+    messages: [message(3, "Archiviert", [])],
+  }, now);
+
+  assert.equal(db.messages.search({ userId: admin.id, flag: "\\Flagged", limit: 10 }).length, 1);
+  db.messages.applyMove("box-1", "INBOX", "Projects", [{ uid: 2, destinationUid: 9 }], now);
+  assert.equal(db.messages.findInFolder("box-1", "Projects", [9])[0]?.subject, "Rechnung");
+  assert.equal(db.messages.findInFolder("box-1", "INBOX", [2]).length, 0);
+
+  db.messages.applyCopy("box-1", "INBOX", "Projects", [{ uid: 1, destinationUid: 10 }], now);
+  assert.equal(db.messages.findInFolder("box-1", "Projects", [10])[0]?.subject, "Wichtig");
+  assert.equal(db.messages.findInFolder("box-1", "INBOX", [1]).length, 1);
+
+  db.messages.applyFlags("box-1", "INBOX", [{ uid: 1, flags: ["\\Seen", "\\Answered"] }]);
+  assert.deepEqual(db.messages.findInFolder("box-1", "INBOX", [1])[0]?.flags, ["\\Seen", "\\Answered"]);
+
+  db.messages.applyDeletion("box-1", "INBOX", [1]);
+  assert.equal(db.messages.findInFolder("box-1", "INBOX", [1]).length, 0);
+
+  db.messages.rewriteFolders("box-1", "Projects", "Archiv", "/");
+  const names = db.messages.listFolders("box-1", admin.id).map((folder) => folder.folder);
+  assert.equal(names.includes("Archiv"), true);
+  assert.equal(names.includes("Archiv/2024"), true);
+  assert.equal(names.includes("Projects"), false);
+  assert.equal(names.includes("Projects/2024"), false);
+  assert.equal(db.messages.findInFolder("box-1", "Archiv", [9])[0]?.subject, "Rechnung");
+  assert.equal(db.messages.findInFolder("box-1", "Archiv/2024", [3])[0]?.subject, "Archiviert");
+
+  db.messages.applyMove("box-1", "Archiv", "INBOX", [{ uid: 10, destinationUid: null }], now);
+  assert.equal(db.messages.findInFolder("box-1", "Archiv", [10]).length, 0);
+
+  const total = db.messages.removeFolder("box-1", "Archiv/2024");
+  db.mailboxes.setIndexedCount("box-1", total, now);
+  assert.equal(db.messages.listFolders("box-1", admin.id).some((folder) => folder.folder === "Archiv/2024"), false);
+  assert.equal(db.mailboxes.findById("box-1")?.indexedCount, total);
+  db.close();
+});

@@ -1,6 +1,6 @@
 # MailConnect
 
-MailConnect verbindet IMAP- und SMTP-Konten mit einem lokalen Suchindex und einer MCP-Schnittstelle. Agenten können den Index durchsuchen, Nachrichten bei Bedarf vom Server laden und, wenn SMTP eingerichtet ist, senden.
+MailConnect verbindet IMAP- und SMTP-Konten mit einem lokalen Suchindex und einer MCP-Schnittstelle. Agenten können den Index durchsuchen, Nachrichten vom Server laden, markieren, verschieben, kopieren und löschen, Ordner verwalten und, wenn SMTP eingerichtet ist, senden.
 
 Die Registrierung ist nur mit Einladung möglich. Der erste Admin entsteht über die Bootstrap-CLI. Die öffentliche Startseite erklärt den Ablauf, die Versionsliste liegt in [`_documentation/CHANGELOG.md`](_documentation/CHANGELOG.md).
 
@@ -50,10 +50,16 @@ Werkzeuge:
 
 - `list_mailboxes` (mit Beschreibung und Handlungsanweisungen für Agenten)
 - `get_index_stats`
-- `list_folders`
-- `search_messages`
-- `get_message` (listet Anhänge mit Dateiname und Teil-ID)
+- `list_folders` (mit `parent` nur die direkten Unterordner, leerer `parent` nur die oberste Ebene)
+- `list_imap_folders` (dieselbe Auswahl, direkt vom Server)
+- `folder_status`
+- `create_folder`, `rename_folder`, `delete_folder`, `set_folder_subscription`
+- `search_messages` (optional nach Markierung, zum Beispiel `\Flagged`)
+- `search_imap`
+- `get_message` (Text, Button-Links aus dem HTML, Anhänge mit Dateiname und Teil-ID)
 - `get_attachment` (lädt die Datei, zum Beispiel eine PDF-Rechnung)
+- `set_message_flags`, `move_messages`, `copy_messages`, `delete_messages`
+- `append_message`
 - `send_email`
 - `sync_mailbox`
 

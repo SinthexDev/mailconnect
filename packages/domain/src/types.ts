@@ -146,6 +146,11 @@ export type MailAttachment = {
   size: number | null;
 };
 
+export type MailLink = {
+  href: string;
+  text: string;
+};
+
 export type FullMessage = {
   subject: string;
   from: string;
@@ -154,6 +159,7 @@ export type FullMessage = {
   date: string | null;
   text: string;
   html: string | null;
+  links: MailLink[];
   attachments: MailAttachment[];
 };
 
@@ -180,11 +186,73 @@ export type ProviderPreset = {
   smtp?: { host: string; port: number; secure: boolean };
 };
 
+export type FlagMode = "set" | "add" | "remove";
+
+export type ImapFolderInfo = {
+  path: string;
+  name: string;
+  delimiter: string;
+  parentPath: string;
+  flags: string[];
+  specialUse: string | null;
+  selectable: boolean;
+  subscribed: boolean;
+};
+
+export type ImapFolderStatus = {
+  path: string;
+  messages: number;
+  recent: number;
+  unseen: number;
+  uidNext: number;
+  uidValidity: number;
+};
+
+export type UidRelocation = {
+  uid: number;
+  destinationUid: number | null;
+};
+
+export type StoredFlag = {
+  uid: number;
+  flags: string[];
+};
+
+export type StoredAppend = {
+  folder: string;
+  uid: number;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  date: string | null;
+  flags: string[];
+  snippet: string;
+};
+
+export type ImapSearchCriteria = {
+  seen?: boolean;
+  flagged?: boolean;
+  answered?: boolean;
+  draft?: boolean;
+  deleted?: boolean;
+  from?: string;
+  to?: string;
+  cc?: string;
+  subject?: string;
+  body?: string;
+  text?: string;
+  since?: string;
+  before?: string;
+  keyword?: string;
+};
+
 export type SearchQuery = {
   userId: string;
   text?: string;
   mailboxId?: string;
   folder?: string;
+  flag?: string;
   since?: string;
   until?: string;
   limit: number;

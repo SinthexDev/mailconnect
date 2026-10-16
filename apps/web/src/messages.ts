@@ -107,6 +107,7 @@ export type Messages = {
   noSubject: string;
   attachment: string;
   attachmentsHeading: string;
+  linksHeading: string;
   message: string;
   close: string;
   from: string;
@@ -236,7 +237,7 @@ export const de: Messages = {
   indexTitle: 'Erst sortieren, dann fragen.',
   indexBody: 'Kaum steht das Konto, fängt der Index an. Ordner, Absender, Betreff, ein kurzer Schnipsel. Den ganzen Brief holt erst, wer ihn wirklich aufmacht.',
   agentTitle: 'Der Agent bekommt die Karteikarte.',
-  agentBody: 'Über MCP sucht er im Index, lässt sich eine Mail zeigen und verschickt, wenn SMTP da ist, auch eine. Den Schlüssel zum Postfach sieht er nicht.',
+  agentBody: 'Über MCP sucht er im Index, lässt sich eine Mail zeigen, markiert, verschiebt oder löscht sie und verschickt, wenn SMTP da ist, auch eine. Den Schlüssel zum Postfach sieht er nicht.',
   takeTitle: 'Nimm es mit.',
   takeBody1: 'MailConnect ist dafür gedacht, auf dem eigenen Server zu laufen. Diese Installation hier bleibt bei Sinthex.',
   takeBody2: 'Der Quellcode steht unter der MIT-Lizenz auf GitHub, dazu der Stand von main als Zip. Schlüssel, Datenbank und Postfächer legst du bei dir an. Die Schritte stehen in der README im Repository.',
@@ -313,6 +314,7 @@ export const de: Messages = {
   noSubject: '(ohne Betreff)',
   attachment: 'Anhang',
   attachmentsHeading: 'Anhänge',
+  linksHeading: 'Links',
   message: 'Nachricht',
   close: 'Schließen',
   from: 'Von',
@@ -323,13 +325,13 @@ export const de: Messages = {
   loadingMessage: (subject) => `${subject} wird geladen …`,
   searchPrompt: 'Gib einen Suchbegriff ein, um den Index zu durchsuchen.',
   tokensTitle: 'Agent-Tokens',
-  tokensLead: 'Mit einem Token greift ein MCP-Client wie Cursor auf Suche und Versand deiner Postfächer zu.',
+  tokensLead: 'Mit einem Token greift ein MCP-Client wie Cursor auf Suche, Postfach und Versand zu.',
   mcpStepUrlTitle: 'Die Adresse',
   mcpStepUrlBody: 'Jeder Agent benutzt dieselbe URL. Kopiere sie in die MCP-Konfiguration von Cursor.',
   mcpStepTokenTitle: 'Ein Token',
   mcpStepTokenBody: 'Das Token gehört zu einem Agenten und wird nur einmal angezeigt. Im Header steht es hinter Bearer.',
   mcpStepUseTitle: 'Danach liest er mit',
-  mcpStepUseBody: 'Der Agent sucht im Index, öffnet eine Mail und kann senden, wenn SMTP eingerichtet ist. Das Passwort des Postfachs sieht er nicht.',
+  mcpStepUseBody: 'Der Agent sucht im Index, öffnet eine Mail, kann sie markieren, verschieben oder löschen und senden, wenn SMTP eingerichtet ist. Das Passwort des Postfachs sieht er nicht.',
   mcpUrlTitle: 'MCP-Adresse',
   mcpUrlBody: 'Diese Adresse bleibt gleich. Dazu kommt der Header Authorization: Bearer und das Token. Derselbe Token geht auch als X-Api-Key, falls ein Proxy den Authorization-Header schluckt.',
   copyUrl: 'Adresse kopieren',
@@ -442,7 +444,7 @@ export const en: Messages = {
   indexTitle: 'Sort first, then ask.',
   indexBody: 'As soon as the account is there, the index starts. Folders, sender, subject, a short snippet. The whole letter is fetched only by whoever actually opens it.',
   agentTitle: 'The agent gets the index card.',
-  agentBody: 'Over MCP it searches the index, can open a mail, and can send one when SMTP is set up. It never sees the key to the mailbox.',
+  agentBody: 'Over MCP it searches the index, can open a mail, flag, move, or delete it, and can send one when SMTP is set up. It never sees the key to the mailbox.',
   takeTitle: 'Take it with you.',
   takeBody1: 'MailConnect is meant to run on your own server. This installation stays with Sinthex.',
   takeBody2: 'The source is on GitHub under the MIT license, and the main branch is also there as a zip. You create the keys, the database, and the mailboxes yourself. The steps are in the README in the repository.',
@@ -519,6 +521,7 @@ export const en: Messages = {
   noSubject: '(no subject)',
   attachment: 'Attachment',
   attachmentsHeading: 'Attachments',
+  linksHeading: 'Links',
   message: 'Message',
   close: 'Close',
   from: 'From',
@@ -529,13 +532,13 @@ export const en: Messages = {
   loadingMessage: (subject) => `Loading ${subject} …`,
   searchPrompt: 'Enter a search term to look through the index.',
   tokensTitle: 'Agent tokens',
-  tokensLead: 'A token lets an MCP client such as Cursor search and send through your mailboxes.',
+  tokensLead: 'A token lets an MCP client such as Cursor search, manage, and send through your mailboxes.',
   mcpStepUrlTitle: 'The address',
   mcpStepUrlBody: 'Every agent uses the same URL. Copy it into Cursor’s MCP configuration.',
   mcpStepTokenTitle: 'A token',
   mcpStepTokenBody: 'The token belongs to one agent and is shown only once. In the header it follows Bearer.',
   mcpStepUseTitle: 'Then it can read',
-  mcpStepUseBody: 'The agent searches the index, opens a mail, and can send when SMTP is set up. It never sees the mailbox password.',
+  mcpStepUseBody: 'The agent searches the index, opens a mail, can flag, move, or delete it, and can send when SMTP is set up. It never sees the mailbox password.',
   mcpUrlTitle: 'MCP address',
   mcpUrlBody: 'This address stays the same. Add the header Authorization: Bearer and the token. The same token also works as X-Api-Key if a proxy drops the Authorization header.',
   copyUrl: 'Copy address',

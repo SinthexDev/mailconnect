@@ -93,6 +93,18 @@ export function SearchPage() {
                     </div>
                   )}
                   <pre className="body">{open.body.text ?? (open.body.html ? m.htmlOnly : m.emptyBody)}</pre>
+                  {open.body.links && open.body.links.length > 0 && (
+                    <div className="attachments">
+                      <h3>{m.linksHeading}</h3>
+                      <ul>
+                        {open.body.links.map((link) => (
+                          <li key={link.href}>
+                            <a href={link.href} target="_blank" rel="noreferrer">{link.text || link.href}</a>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </>
               ) : <p className="muted">{m.loadingMessage(current?.subject ?? '')}</p>}
             </article>

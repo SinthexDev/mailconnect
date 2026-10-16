@@ -3,13 +3,20 @@ import type {
   ChannelSettings,
   CredentialKind,
   EncryptedBlob,
+  FlagMode,
   FolderCursor,
   FolderPull,
+  ImapFolderInfo,
+  ImapFolderStatus,
+  ImapSearchCriteria,
   IndexProgress,
   AttachmentFile,
   FullMessage,
   PullBatch,
   IndexedMessage,
+  StoredAppend,
+  StoredFlag,
+  UidRelocation,
   Invite,
   Mailbox,
   OutboundMail,
@@ -82,6 +89,7 @@ export interface MailboxRepository {
     id: string,
     patch: Pick<Mailbox, "indexStatus" | "indexedCount" | "lastSyncAt" | "lastError" | "errorStreak" | "retryAt" | "updatedAt">,
   ): void;
+  setIndexedCount(id: string, indexedCount: number, updatedAt: string): void;
 }
 
 export interface CredentialRepository {
@@ -98,6 +106,15 @@ export interface MessageIndexRepository {
   search(query: SearchQuery): IndexedMessage[];
   findById(id: string, userId: string): IndexedMessage | null;
   listFolders(mailboxId: string, userId: string): FolderCursor[];
+  findInFolder(mailboxId: string, folder: string, uids: number[]): IndexedMessage[];
+  applyDeletion(mailboxId: string, folder: string, uids: number[]): number;
+  applyMove(mailboxId: string, source: string, destination: string, moves: UidRelocation[], at: string): number;
+  applyCopy(mailboxId: string, source: string, destination: string, moves: UidRelocation[], at: string): number;
+  applyFlags(mailboxId: string, folder: string, updates: StoredFlag[]): void;
+  applyAppend(mailboxId: string, message: StoredAppend, at: string): number;
+  rewriteFolders(mailboxId: string, from: string, to: string, delimiter: string): void;
+  removeFolder(mailboxId: string, folder: string): number;
+  ensureFolder(mailboxId: string, folder: string, at: string): void;
   stats(userId: string): {
     mailboxCount: number;
     imapCount: number;
@@ -118,6 +135,18 @@ export interface ImapPort {
   pull(settings: ImapSettings, cursors: FolderCursor[], limit: number, onProgress?: (pull: FolderPull) => void): Promise<PullBatch>;
   fetchMessage(settings: ImapSettings, folder: string, uid: number): Promise<FullMessage>;
   fetchAttachment(settings: ImapSettings, folder: string, uid: number, attachmentId: string): Promise<AttachmentFile>;
+  listRemoteFolders(settings: ImapSettings): Promise<ImapFolderInfo[]>;
+  folderStatus(settings: ImapSettings, folder: string): Promise<ImapFolderStatus>;
+  createFolder(settings: ImapSettings, folder: string): Promise<{ path: string; created: boolean }>;
+  renameFolder(settings: ImapSettings, folder: string, newFolder: string): Promise<{ path: string; newPath: string; delimiter: string }>;
+  deleteFolder(settings: ImapSettings, folder: string): Promise<void>;
+  setSubscription(settings: ImapSettings, folder: string, subscribed: boolean): Promise<void>;
+  deleteMessages(settings: ImapSettings, folder: string, uids: number[]): Promise<void>;
+  moveMessages(settings: ImapSettings, folder: string, uids: number[], destination: string): Promise<UidRelocation[]>;
+  copyMessages(settings: ImapSettings, folder: string, uids: number[], destination: string): Promise<UidRelocation[]>;
+  storeFlags(settings: ImapSettings, folder: string, uids: number[], mode: FlagMode, flags: string[]): Promise<StoredFlag[]>;
+  appendMessage(settings: ImapSettings, folder: string, rfc822: string, flags: string[]): Promise<{ uid: number | null }>;
+  searchUids(settings: ImapSettings, folder: string, criteria: ImapSearchCriteria): Promise<number[]>;
 }
 
 export interface SmtpPort {

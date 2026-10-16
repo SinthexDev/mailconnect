@@ -37,6 +37,7 @@ export interface MessageSummary {
 export interface MessageBody {
   subject: string; from: string; to: string; cc: string; date: string;
   text: string | null; html: string | null;
+  links?: Array<{ href: string; text: string }>;
   attachments?: Array<{ id: string; filename: string; contentType: string; size: number | null }>;
 }
 export interface Invite { id: string; email: string | null; expiresAt: string; usedAt: string | null; createdAt: string }

@@ -248,6 +248,7 @@ function mountApi(router: express.Router, container: Container): void {
       date: message.date,
       text: message.text.slice(0, 100_000),
       html: message.html ? message.html.slice(0, 200_000) : null,
+      links: message.links,
       attachments: message.attachments,
     });
   }));

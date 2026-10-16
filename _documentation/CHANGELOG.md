@@ -1,5 +1,30 @@
 # MailConnect – Änderungen
 
+## Version 1.1.26 - 15. Oktober 2026
+### Button-Links kommen beim Agenten an
+
+Eine Mail zum Zurücksetzen des Passworts hat den Link oft nur im HTML-Button. Der Agent sah den Satz, aber nicht die Adresse.
+
+#### Behoben
+
+- **Lesen**: `get_message` liefert `links` mit dem Ziel und der Beschriftung. Steht die Adresse nicht im reinen Text, hängt sie unten am Text an. In der Suche steht sie als Link unter der Nachricht.
+
+---
+
+## Version 1.1.25 - 15. Oktober 2026
+### Der Agent arbeitet im Postfach
+
+Suchen, Lesen und Senden gingen schon. Löschen, Verschieben, Markieren und die Ordner selbst gingen nur am Mailserver.
+
+#### Neue Features
+
+- **Nachrichten**: `delete_messages` löscht Mails, `move_messages` und `copy_messages` legen sie in einen anderen Ordner. `set_message_flags` setzt, ergänzt oder entfernt Markierungen wie gelesen oder wichtig. `append_message` legt eine Mail in einen Ordner, zum Beispiel Entwürfe.
+- **Ordner**: `list_folders` und `list_imap_folders` listen auf Wunsch nur die direkten Unterordner. Anlegen, Umbenennen, Löschen und Abonnieren hat eigene Werkzeuge. `folder_status` nennt Anzahl und ungelesene Nachrichten.
+- **Suche**: `search_messages` filtert nach einer Markierung. `search_imap` sucht direkt auf dem Server und liefert UIDs.
+- **Index**: Nach dem Eingriff stimmen Ordner, UID und Markierungen im Suchindex mit dem Server überein.
+
+---
+
 ## Version 1.1.24 - 9. Oktober 2026
 ### Der Agent-Token kommt am Connector an
 

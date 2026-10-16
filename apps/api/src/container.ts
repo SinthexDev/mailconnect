@@ -33,7 +33,7 @@ export function createContainer(config: AppConfig): Container {
   const auth = new AuthService(db.users, db.invites, db.sessions, passwordHasher, secrets, ids, clock);
   const tokens = new TokenService(db.tokens, db.users, secrets, ids, clock);
   const sync = new SyncService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, clock, config.syncBatch);
-  const mail = new MailService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, smtpAdapter);
+  const mail = new MailService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, smtpAdapter, clock);
   const nudge: { current: (id: string) => void } = { current: () => undefined };
   const mailboxes = new MailboxService(
     db.mailboxes,
