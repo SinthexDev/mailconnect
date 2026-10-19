@@ -1,5 +1,5 @@
 import { AppError, notFound } from "./errors.js";
-import { assertFolderPath, assertNotInbox, buildPlainMessage, filterDirectChildren, normalizeFlag, normalizeFlags } from "./imap-rules.js";
+import { assertFolderPath, assertNotInbox, buildPlainMessage, filterDirectChildren, normalizeFlag, normalizeFlags, resolveSentFolder, shouldSaveToSent } from "./imap-rules.js";
 import type {
   Clock,
   CredentialRepository,
@@ -9,6 +9,8 @@ import type {
   MessageIndexRepository,
   SmtpPort,
 } from "./ports.js";
+import { outboundFrom } from "./from-name.js";
+import { prepareOutboundAttachments, type InboundAttachment } from "./outbound-attachments.js";
 import type { FlagMode, FullMessage, ImapSearchCriteria, IndexedMessage, OutboundMail, PublicUser, SearchQuery, StoredAppend } from "./types.js";
 
 export type SendInput = {
@@ -19,6 +21,9 @@ export type SendInput = {
   subject: string;
   text: string;
   html?: string;
+  fromName?: string;
+  attachments?: InboundAttachment[];
+  saveToSent?: boolean;
 };
 
 export type MessageTarget = {
@@ -47,6 +52,7 @@ type Target = {
 };
 
 const SEARCH_LIMIT = 200;
+const MAX_RAW_CHARS = 28_000_000;
 
 export class MailService {
   constructor(
@@ -164,7 +170,7 @@ export class MailService {
     let rfc822 = raw ?? "";
     let stored: Omit<StoredAppend, "folder" | "uid"> | null = null;
     if (raw) {
-      if (raw.length > 1_000_000) throw new AppError("message_too_large", "Die Nachricht ist größer als 1 MB.", 400);
+      if (raw.length > MAX_RAW_CHARS) throw new AppError("message_too_large", "Die Nachricht ist größer als 28 MB.", 400);
     } else {
       if (input.text === undefined) throw new AppError("missing_body", "Text oder raw ist nötig.", 400);
       const to = cleanAddresses(input.to ?? []);
@@ -231,25 +237,71 @@ export class MailService {
     return this.imap.fetchAttachment(settings, indexed.folder, indexed.uid, attachmentId);
   }
 
-  async send(user: PublicUser, input: SendInput): Promise<void> {
+  async send(user: PublicUser, input: SendInput): Promise<{ ok: true; messageId: string; attachmentCount: number; sentFolder: string | null; sentUid: number | null; savedToSent: boolean; saveError: string | null }> {
     const mailbox = this.owned(user, input.mailboxId);
     if (!mailbox.smtp) throw new AppError("no_smtp", "Dieses Konto hat kein SMTP.", 400);
     const blob = this.credentials.get(mailbox.id, "smtp");
     if (!blob) throw new AppError("missing_secret", "SMTP-Zugangsdaten fehlen.", 500);
+    const attachments = prepareOutboundAttachments(input.attachments);
     const message: OutboundMail = {
-      from: mailbox.email,
+      from: outboundFrom(mailbox.email, mailbox.displayName, input.fromName),
       to: cleanAddresses(input.to),
       cc: cleanAddresses(input.cc ?? []),
       bcc: cleanAddresses(input.bcc ?? []),
       subject: input.subject.slice(0, 998),
       text: input.text,
       html: input.html,
+      attachments,
     };
     if (message.to.length === 0) throw new AppError("missing_recipient", "Mindestens ein Empfänger ist nötig.", 400);
     if (message.to.length + message.cc.length + message.bcc.length > 50) {
       throw new AppError("too_many_recipients", "Zu viele Empfänger.", 400);
     }
-    await this.smtp.send({ ...mailbox.smtp, password: this.vault.decrypt(blob) }, message);
+    const sent = await this.smtp.send({ ...mailbox.smtp, password: this.vault.decrypt(blob) }, message);
+    if (!shouldSaveToSent(input.saveToSent, mailbox.serverStoresSent)) {
+      return { ok: true, messageId: sent.messageId, attachmentCount: attachments.length, sentFolder: null, sentUid: null, savedToSent: false, saveError: null };
+    }
+    const copy = await this.keepSentCopy(user, mailbox, message, sent.raw);
+    return { ok: true, messageId: sent.messageId, attachmentCount: attachments.length, ...copy };
+  }
+
+  private async keepSentCopy(
+    user: PublicUser,
+    mailbox: { id: string; imap: { host: string; port: number; secure: boolean; username: string } | null; sentFolder: string },
+    message: OutboundMail,
+    raw: Uint8Array | null,
+  ): Promise<{ sentFolder: string | null; sentUid: number | null; savedToSent: boolean; saveError: string | null }> {
+    if (!mailbox.imap) return { sentFolder: null, sentUid: null, savedToSent: false, saveError: "Dieses Konto hat kein IMAP." };
+    if (!raw) return { sentFolder: null, sentUid: null, savedToSent: false, saveError: "Die Kopie für Gesendet ließ sich nicht bauen." };
+    try {
+      const { settings } = this.imapOf(user, mailbox.id);
+      const folders = await this.imap.listRemoteFolders(settings);
+      const override = mailbox.sentFolder.trim();
+      let folder = resolveSentFolder(folders, override);
+      if (!folder) {
+        const created = await this.imap.createFolder(settings, "Sent");
+        folder = created.path;
+      }
+      const appended = await this.imap.appendMessage(settings, folder, raw, ["\\Seen"]);
+      if (appended.uid !== null) {
+        const indexedCount = this.messages.applyAppend(mailbox.id, {
+          folder,
+          uid: appended.uid,
+          from: message.from.name ? `${message.from.name} <${message.from.address}>` : message.from.address,
+          to: message.to.join(", "),
+          cc: message.cc.join(", "),
+          subject: message.subject,
+          date: this.clock.now(),
+          flags: ["\\Seen"],
+          snippet: message.text.replace(/\s+/g, " ").trim().slice(0, 500),
+        }, this.clock.now());
+        this.mailboxes.setIndexedCount(mailbox.id, indexedCount, this.clock.now());
+      }
+      return { sentFolder: folder, sentUid: appended.uid, savedToSent: true, saveError: null };
+    } catch (error) {
+      const saveError = error instanceof Error ? error.message : "Die Kopie konnte nicht in Gesendet abgelegt werden.";
+      return { sentFolder: null, sentUid: null, savedToSent: false, saveError };
+    }
   }
 
   private async transfer(user: PublicUser, target: MessageTarget, destination: string, kind: "move" | "copy") {

@@ -174,16 +174,59 @@ export type Messages = {
   addTitle: string;
   formLead: string;
   displayName: string;
+  displayNameHint: string;
   description: string;
   descriptionPlaceholder: string;
   instructions: string;
   instructionsPlaceholder: string;
+  webhooks: string;
+  webhooksHint: string;
+  addWebhook: string;
+  webhookTitle: string;
+  webhookMethod: string;
+  webhookUrl: string;
+  webhookSecret: string;
+  webhookHeader: string;
+  webhookHeaderHint: string;
+  webhookApply: string;
+  webhookCancel: string;
+  webhookBadUrl: string;
+  webhookBadHeader: string;
+  webhookEmpty: string;
+  webhookExcludedCount: (count: number) => string;
+  webhookFolderExcluded: string;
+  webhookFolderActive: string;
+  settingsNav: string;
+  sectionGeneral: string;
+  sectionConnection: string;
+  sectionWebhooks: string;
+  sectionSignatures: string;
+  signaturesLead: string;
+  signaturePreview: string;
+  signaturePick: string;
+  signatureBack: string;
+  signaturesEmpty: string;
+  signaturesAfterSave: string;
+  signatureDefault: string;
+  signaturePlain: string;
+  signatureHtml: string;
+  signatureOpen: string;
+  signatureMissing: string;
+  webhookFolders: string;
+  webhookFoldersHint: string;
+  webhookFoldersEmpty: string;
+  webhookFolderMissing: string;
   provider: string;
   chooseProvider: string;
   imapLegend: string;
   smtpLegend: string;
   enableImap: string;
   enableSmtp: string;
+  sentFolder: string;
+  sentFolderPlaceholder: string;
+  sentFolderHint: string;
+  serverStoresSent: string;
+  serverStoresSentHint: string;
   server: string;
   port: string;
   implicitTls: (port: string) => string;
@@ -331,7 +374,7 @@ export const de: Messages = {
   mcpStepTokenTitle: 'Ein Token',
   mcpStepTokenBody: 'Das Token gehört zu einem Agenten und wird nur einmal angezeigt. Im Header steht es hinter Bearer.',
   mcpStepUseTitle: 'Danach liest er mit',
-  mcpStepUseBody: 'Der Agent sucht im Index, öffnet eine Mail, kann sie markieren, verschieben oder löschen und senden, wenn SMTP eingerichtet ist. Das Passwort des Postfachs sieht er nicht.',
+  mcpStepUseBody: 'Der Agent sucht im Index, öffnet eine Mail, kann sie markieren, verschieben oder löschen und senden, wenn SMTP eingerichtet ist. Fehlt eine neue Mail, stößt er den Abgleich selbst an. Das Passwort des Postfachs sieht er nicht.',
   mcpUrlTitle: 'MCP-Adresse',
   mcpUrlBody: 'Diese Adresse bleibt gleich. Dazu kommt der Header Authorization: Bearer und das Token. Derselbe Token geht auch als X-Api-Key, falls ein Proxy den Authorization-Header schluckt.',
   copyUrl: 'Adresse kopieren',
@@ -381,16 +424,59 @@ export const de: Messages = {
   addTitle: 'Postfach hinzufügen',
   formLead: 'IMAP baut den Suchindex auf, SMTP erlaubt Agenten das Senden. Zugangsdaten werden verschlüsselt gespeichert.',
   displayName: 'Anzeigename',
+  displayNameHint: 'Dieser Name steht beim Versand als Absender, zum Beispiel Vanessa | Sinthex.',
   description: 'Beschreibung für Agenten',
   descriptionPlaceholder: 'Wofür dieses Postfach da ist, zum Beispiel Rechnungen oder Support.',
   instructions: 'Handlungsanweisungen',
   instructionsPlaceholder: 'Zum Beispiel: Spam darf gelöscht werden. E-Mails an Kunden nur nach Zustimmung eines Menschen senden.',
+  webhooks: 'Webhooks',
+  webhooksHint: 'Bei neuer Post ruft MailConnect diese Adressen auf, höchstens fünf. Der erste Einlesen-Lauf meldet noch nichts.',
+  addWebhook: 'Webhook',
+  webhookTitle: 'Webhook',
+  webhookMethod: 'Methode',
+  webhookUrl: 'Adresse',
+  webhookSecret: 'Schlüssel',
+  webhookHeader: 'Header',
+  webhookHeaderHint: 'Zum Beispiel Authorization: Bearer …. Der Schlüssel wird als Bearer geschickt, wenn der Header leer ist.',
+  webhookApply: 'Speichern',
+  webhookCancel: 'Abbrechen',
+  webhookBadUrl: 'Eine Webhook-Adresse muss mit https:// beginnen.',
+  webhookBadHeader: 'Der Webhook-Header muss aus Name und Wert bestehen, zum Beispiel Authorization: Bearer ….',
+  webhookEmpty: 'Noch kein Webhook.',
+  webhookFolders: 'Ordner',
+  webhookFoldersHint: 'Standardmäßig meldet der Webhook neue Post in jedem Ordner. Tippe auf eine Zeile, um einen Ordner auszuschließen. Ein × bedeutet ausgeschlossen. Unterordner zählen extra.',
+  webhookFoldersEmpty: 'Noch keine Ordner im Index. Nach dem Abgleich kannst du einzelne ausschließen.',
+  webhookFolderMissing: 'nicht mehr im Index',
+  webhookExcludedCount: (count) => count === 1 ? '1 Ordner ausgeschlossen' : `${count} Ordner ausgeschlossen`,
+  webhookFolderExcluded: 'ausgeschlossen',
+  webhookFolderActive: 'aktiv',
+  settingsNav: 'Bereiche des Postfachs',
+  sectionGeneral: 'Allgemein',
+  sectionConnection: 'Verbindung',
+  sectionWebhooks: 'Webhooks',
+  sectionSignatures: 'Signaturen',
+  signaturesLead: 'Agenten legen Signaturen über MCP an. Eine ist die Standard-Signatur. Die Vorschau steht rechts.',
+  signaturePreview: 'Vorschau',
+  signaturePick: 'Wähle eine Signatur.',
+  signatureBack: 'Zurück zu den Signaturen',
+  signaturesEmpty: 'Noch keine Signatur.',
+  signaturesAfterSave: 'Speichere das Postfach zuerst. Danach können Agenten Signaturen anlegen.',
+  signatureDefault: 'Standard',
+  signaturePlain: 'Plain Text',
+  signatureHtml: 'HTML',
+  signatureOpen: 'Ansehen',
+  signatureMissing: 'Diese Signatur gibt es nicht.',
   provider: 'Anbieter',
   chooseProvider: 'Anbieter wählen',
   imapLegend: 'Eingang (IMAP)',
   smtpLegend: 'Ausgang (SMTP)',
   enableImap: 'IMAP aktivieren (Index und Suche)',
   enableSmtp: 'SMTP aktivieren (Versand)',
+  sentFolder: 'Gesendet-Ordner',
+  sentFolderPlaceholder: 'automatisch',
+  sentFolderHint: 'Leer lässt MailConnect den Ordner erkennen, zum Beispiel Sent Messages, Sent oder Gesendet.',
+  serverStoresSent: 'Der Server speichert Gesendet selbst',
+  serverStoresSentHint: 'Zum Beispiel Gmail. MailConnect legt dann keine zweite Kopie ab. Eine einzelne Mail kann das mit saveToSent erzwingen.',
   server: 'Server',
   port: 'Port',
   implicitTls: (port) => `Implizites TLS (${port}); aus = STARTTLS`,
@@ -538,7 +624,7 @@ export const en: Messages = {
   mcpStepTokenTitle: 'A token',
   mcpStepTokenBody: 'The token belongs to one agent and is shown only once. In the header it follows Bearer.',
   mcpStepUseTitle: 'Then it can read',
-  mcpStepUseBody: 'The agent searches the index, opens a mail, can flag, move, or delete it, and can send when SMTP is set up. It never sees the mailbox password.',
+  mcpStepUseBody: 'The agent searches the index, opens a mail, can flag, move, or delete it, and can send when SMTP is set up. If a new mail is missing, it can start the sync itself. It never sees the mailbox password.',
   mcpUrlTitle: 'MCP address',
   mcpUrlBody: 'This address stays the same. Add the header Authorization: Bearer and the token. The same token also works as X-Api-Key if a proxy drops the Authorization header.',
   copyUrl: 'Copy address',
@@ -588,16 +674,59 @@ export const en: Messages = {
   addTitle: 'Add mailbox',
   formLead: 'IMAP builds the search index. SMTP lets agents send. Credentials are stored encrypted.',
   displayName: 'Display name',
+  displayNameHint: 'This name is the sender when mail goes out, for example Vanessa | Sinthex.',
   description: 'Description for agents',
   descriptionPlaceholder: 'What this mailbox is for, for example invoices or support.',
   instructions: 'Instructions',
   instructionsPlaceholder: 'For example: spam may be deleted. Email to customers may be sent only with a person’s approval.',
+  webhooks: 'Webhooks',
+  webhooksHint: 'When new mail arrives, MailConnect calls these addresses, at most five. The first full read does not notify.',
+  addWebhook: 'Webhook',
+  webhookTitle: 'Webhook',
+  webhookMethod: 'Method',
+  webhookUrl: 'Address',
+  webhookSecret: 'Key',
+  webhookHeader: 'Header',
+  webhookHeaderHint: 'For example Authorization: Bearer …. The key is sent as Bearer when the header is empty.',
+  webhookApply: 'Save',
+  webhookCancel: 'Cancel',
+  webhookBadUrl: 'A webhook address must start with https://.',
+  webhookBadHeader: 'The webhook header must be a name and a value, for example Authorization: Bearer ….',
+  webhookEmpty: 'No webhook yet.',
+  webhookFolders: 'Folders',
+  webhookFoldersHint: 'By default the webhook reports new mail in every folder. Tap a row to exclude a folder. An × means excluded. Subfolders are separate.',
+  webhookFoldersEmpty: 'No folders in the index yet. After a sync you can exclude individual ones.',
+  webhookFolderMissing: 'no longer in the index',
+  webhookExcludedCount: (count) => count === 1 ? '1 folder excluded' : `${count} folders excluded`,
+  webhookFolderExcluded: 'excluded',
+  webhookFolderActive: 'active',
+  settingsNav: 'Mailbox sections',
+  sectionGeneral: 'General',
+  sectionConnection: 'Connection',
+  sectionWebhooks: 'Webhooks',
+  sectionSignatures: 'Signatures',
+  signaturesLead: 'Agents create signatures through MCP. One of them is the default. The preview is on the right.',
+  signaturePreview: 'Preview',
+  signaturePick: 'Choose a signature.',
+  signatureBack: 'Back to the signatures',
+  signaturesEmpty: 'No signature yet.',
+  signaturesAfterSave: 'Save the mailbox first. Agents can add signatures after that.',
+  signatureDefault: 'Default',
+  signaturePlain: 'Plain text',
+  signatureHtml: 'HTML',
+  signatureOpen: 'View',
+  signatureMissing: 'This signature does not exist.',
   provider: 'Provider',
   chooseProvider: 'Choose a provider',
   imapLegend: 'Incoming (IMAP)',
   smtpLegend: 'Outgoing (SMTP)',
   enableImap: 'Enable IMAP (index and search)',
   enableSmtp: 'Enable SMTP (sending)',
+  sentFolder: 'Sent folder',
+  sentFolderPlaceholder: 'automatic',
+  sentFolderHint: 'Empty lets MailConnect detect the folder, for example Sent Messages, Sent or Gesendet.',
+  serverStoresSent: 'The server stores Sent itself',
+  serverStoresSentHint: 'For example Gmail. MailConnect then does not store a second copy. A single mail can force it with saveToSent.',
   server: 'Server',
   port: 'Port',
   implicitTls: (port) => `Implicit TLS (${port}); off = STARTTLS`,

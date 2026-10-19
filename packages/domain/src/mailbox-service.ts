@@ -1,4 +1,5 @@
 import { AppError, notFound } from "./errors.js";
+import { assertFolderPath } from "./imap-rules.js";
 import type {
   CredentialRepository,
   CredentialVault,
@@ -12,17 +13,23 @@ import type {
   ChannelInput,
   ConnectionTestResult,
   Mailbox,
+  MailboxWebhook,
   PublicUser,
 } from "./types.js";
+import { removeSignature, upsertSignature } from "./signatures.js";
+import { parseExcludedFolders, parseWebhookList } from "./webhooks.js";
 
 export type MailboxDraft = {
   displayName: string;
   description: string;
   instructions: string;
+  webhooks: MailboxWebhook[];
   email: string;
   providerId: string | null;
   imap: ChannelInput | null;
   smtp: ChannelInput | null;
+  sentFolder: string;
+  serverStoresSent: boolean;
 };
 
 function cleanChannel(input: ChannelInput | null, requirePassword: boolean): ChannelInput | null {
@@ -104,10 +111,15 @@ export class MailboxService {
       displayName: this.displayName(draft.displayName, draft.email),
       description: this.description(draft.description),
       instructions: this.instructions(draft.instructions),
+      webhooks: this.webhooks(draft.webhooks),
+      webhookExcludedFolders: [],
+      signatures: [],
       email: assertEmail(draft.email),
       providerId: draft.providerId,
       imap: imap ? stripPassword(imap) : null,
       smtp: smtp ? stripPassword(smtp) : null,
+      sentFolder: this.sentFolderName(draft.sentFolder),
+      serverStoresSent: draft.serverStoresSent,
       indexStatus: imap ? "syncing" : "disabled",
       indexedCount: 0,
       lastSyncAt: null,
@@ -137,10 +149,13 @@ export class MailboxService {
       displayName: this.displayName(draft.displayName, draft.email),
       description: this.description(draft.description),
       instructions: this.instructions(draft.instructions),
+      webhooks: this.webhooks(draft.webhooks),
       email: assertEmail(draft.email),
       providerId: draft.providerId,
       imap: imap ? stripPassword(imap) : null,
       smtp: smtp ? stripPassword(smtp) : null,
+      sentFolder: this.sentFolderName(draft.sentFolder),
+      serverStoresSent: draft.serverStoresSent,
       indexStatus: imap ? "syncing" : "disabled",
       lastError: null,
       errorStreak: 0,
@@ -163,6 +178,67 @@ export class MailboxService {
     } else {
       this.onSaved(id);
     }
+    return this.getOwned(user, id);
+  }
+
+  setWebhooks(user: PublicUser, id: string, values: unknown[]): Mailbox {
+    const existing = this.getOwned(user, id);
+    const specified = new Set(values.flatMap((raw) => {
+      if (!raw || typeof raw !== "object" || Array.isArray(raw) || !("excludedFolders" in raw)) return [];
+      const record = raw as { url?: unknown };
+      const url = typeof record.url === "string" ? record.url.trim() : "";
+      if (!url) return [];
+      try { return [new URL(url).href]; } catch { return [url]; }
+    }));
+    const webhooks = parseWebhookList(values).map((hook) => {
+      if (specified.has(hook.url)) return hook;
+      const previous = existing.webhooks.find((item) => item.url === hook.url);
+      return previous ? { ...hook, excludedFolders: previous.excludedFolders } : hook;
+    });
+    const updatedAt = this.clock.now();
+    if (!this.mailboxes.setWebhooks(id, user.id, webhooks, updatedAt)) throw notFound("Mailkonto nicht gefunden.");
+    return this.getOwned(user, id);
+  }
+
+  setWebhookFolders(user: PublicUser, id: string, url: string, values: unknown[]): Mailbox {
+    const existing = this.getOwned(user, id);
+    const folders = parseExcludedFolders(values);
+    const target = url.trim();
+    if (!existing.webhooks.some((hook) => hook.url === target)) {
+      throw new AppError("invalid_webhook", "Diesen Webhook gibt es an dem Postfach nicht.", 400);
+    }
+    const webhooks = existing.webhooks.map((hook) => hook.url === target ? { ...hook, excludedFolders: folders } : hook);
+    const updatedAt = this.clock.now();
+    if (!this.mailboxes.setWebhooks(id, user.id, webhooks, updatedAt)) throw notFound("Mailkonto nicht gefunden.");
+    return this.getOwned(user, id);
+  }
+
+  saveSignature(
+    user: PublicUser,
+    id: string,
+    input: { id?: string; title: string; kind: string; body: string; instructions: string; isDefault?: boolean },
+  ): Mailbox {
+    const existing = this.getOwned(user, id);
+    if (input.id && !existing.signatures.some((item) => item.id === input.id)) throw notFound("Signatur nicht gefunden.");
+    const signatures = upsertSignature(existing.signatures, {
+      id: input.id,
+      title: input.title,
+      kind: input.kind,
+      body: input.body,
+      instructions: input.instructions,
+      isDefault: input.isDefault === true,
+    }, input.id?.trim() ? input.id : this.ids.newId());
+    const updatedAt = this.clock.now();
+    if (!this.mailboxes.setSignatures(id, user.id, signatures, updatedAt)) throw notFound("Mailkonto nicht gefunden.");
+    return this.getOwned(user, id);
+  }
+
+  deleteSignature(user: PublicUser, id: string, signatureId: string): Mailbox {
+    const existing = this.getOwned(user, id);
+    if (!existing.signatures.some((item) => item.id === signatureId)) throw notFound("Signatur nicht gefunden.");
+    const signatures = removeSignature(existing.signatures, signatureId);
+    const updatedAt = this.clock.now();
+    if (!this.mailboxes.setSignatures(id, user.id, signatures, updatedAt)) throw notFound("Mailkonto nicht gefunden.");
     return this.getOwned(user, id);
   }
 
@@ -218,8 +294,18 @@ export class MailboxService {
     return this.boundedText(value, 500, "invalid_description", "Die Beschreibung ist zu lang.");
   }
 
+  private sentFolderName(value: string): string {
+    const folder = value.trim();
+    if (!folder) return "";
+    return assertFolderPath(folder);
+  }
+
   private instructions(value: string): string {
     return this.boundedText(value, 2000, "invalid_instructions", "Die Handlungsanweisungen sind zu lang.");
+  }
+
+  private webhooks(values: unknown[]): MailboxWebhook[] {
+    return parseWebhookList(values);
   }
 
   private boundedText(value: string, max: number, code: string, message: string): string {

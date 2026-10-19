@@ -2,7 +2,7 @@ import nodemailer from "nodemailer";
 import type { OutboundMail, SmtpPort, SmtpSettings } from "@mailconnect/domain";
 import { connectionError } from "./mail-error.js";
 
-function transport(settings: SmtpSettings) {
+function transport(settings: SmtpSettings, socketTimeout = 30_000) {
   return nodemailer.createTransport({
     host: settings.host,
     port: settings.port,
@@ -11,7 +11,7 @@ function transport(settings: SmtpSettings) {
     auth: { user: settings.username, pass: settings.password },
     connectionTimeout: 20_000,
     greetingTimeout: 20_000,
-    socketTimeout: 30_000,
+    socketTimeout,
     tls: { minVersion: "TLSv1.2" },
   });
 }
@@ -29,17 +29,36 @@ export const smtpAdapter: SmtpPort = {
   },
 
   async send(settings, message: OutboundMail) {
-    const client = transport(settings);
+    const client = transport(settings, 120_000);
+    const recipients = [...message.to, ...message.cc, ...message.bcc];
+    const options = {
+      from: message.from.name
+        ? { name: message.from.name, address: message.from.address }
+        : message.from.address,
+      to: message.to,
+      cc: message.cc.length ? message.cc : undefined,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+      attachments: message.attachments?.map((item) => ({
+        filename: item.filename,
+        content: Buffer.from(item.content),
+        contentType: item.contentType,
+        cid: item.contentId,
+      })),
+    };
     try {
+      const imported = await import("nodemailer/lib/mail-composer/index.js") as {
+        default: new (mail: object) => { compile: () => { messageId: () => string; build: () => Promise<Buffer> } };
+      };
+      const compiled = new imported.default(options).compile();
+      const messageId = compiled.messageId();
+      const raw = await compiled.build();
       await client.sendMail({
-        from: message.from,
-        to: message.to,
-        cc: message.cc.length ? message.cc : undefined,
-        bcc: message.bcc.length ? message.bcc : undefined,
-        subject: message.subject,
-        text: message.text,
-        html: message.html,
+        envelope: { from: message.from.address, to: recipients },
+        raw,
       });
+      return { messageId, raw };
     } catch (error) {
       throw connectionError("SMTP", error);
     } finally {

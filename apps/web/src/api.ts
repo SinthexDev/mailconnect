@@ -5,17 +5,24 @@ export interface User { id: string; email: string; role: Role }
 export interface Channel { host: string; port: number; secure: boolean; username: string }
 export interface ChannelInput extends Channel { password?: string }
 export type IndexStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'disabled';
+export type WebhookMethod = 'POST' | 'PUT' | 'PATCH';
+export interface MailboxWebhook { url: string; method: WebhookMethod; secret: string; header: string; excludedFolders: string[] }
+export type SignatureKind = 'plain' | 'html';
+export interface MailSignature { id: string; title: string; kind: SignatureKind; body: string; instructions: string; isDefault: boolean }
 export interface Mailbox {
-  id: string; displayName: string; description: string; instructions: string; email: string; providerId: string;
+  id: string; displayName: string; description: string; instructions: string; webhooks: MailboxWebhook[]; webhookExcludedFolders: string[]; email: string; providerId: string;
   imap: Channel | null; smtp: Channel | null;
+  sentFolder: string; serverStoresSent: boolean;
+  signatures: MailSignature[];
   indexStatus: IndexStatus; indexedCount: number;
   messageTotal: number | null; folderTotal: number; folderDone: number;
   lastSyncAt: string | null; lastError: string | null;
   createdAt: string; updatedAt: string;
 }
 export interface MailboxInput {
-  displayName: string; description: string; instructions: string; email: string; providerId: string;
+  displayName: string; description: string; instructions: string; webhooks: MailboxWebhook[]; email: string; providerId: string;
   imap: ChannelInput | null; smtp: ChannelInput | null;
+  sentFolder: string; serverStoresSent: boolean;
 }
 export interface Provider {
   id: string; name: string; region: string; note?: string;

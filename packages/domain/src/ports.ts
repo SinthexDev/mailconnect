@@ -14,6 +14,7 @@ import type {
   FullMessage,
   PullBatch,
   IndexedMessage,
+  MailboxWebhook,
   StoredAppend,
   StoredFlag,
   UidRelocation,
@@ -89,6 +90,9 @@ export interface MailboxRepository {
     id: string,
     patch: Pick<Mailbox, "indexStatus" | "indexedCount" | "lastSyncAt" | "lastError" | "errorStreak" | "retryAt" | "updatedAt">,
   ): void;
+  setWebhooks(id: string, userId: string, webhooks: Mailbox["webhooks"], updatedAt: string): boolean;
+  setSignatures(id: string, userId: string, signatures: Mailbox["signatures"], updatedAt: string): boolean;
+  setWebhookExcludedFolders(id: string, userId: string, folders: string[], updatedAt: string): boolean;
   setIndexedCount(id: string, indexedCount: number, updatedAt: string): void;
 }
 
@@ -100,7 +104,7 @@ export interface CredentialRepository {
 
 export interface MessageIndexRepository {
   listCursors(mailboxId: string): FolderCursor[];
-  applyFolderPull(mailboxId: string, pull: FolderPull, syncedAt: string): void;
+  applyFolderPull(mailboxId: string, pull: FolderPull, syncedAt: string): string[];
   count(mailboxId: string): number;
   progress(mailboxId: string): IndexProgress;
   search(query: SearchQuery): IndexedMessage[];
@@ -145,13 +149,37 @@ export interface ImapPort {
   moveMessages(settings: ImapSettings, folder: string, uids: number[], destination: string): Promise<UidRelocation[]>;
   copyMessages(settings: ImapSettings, folder: string, uids: number[], destination: string): Promise<UidRelocation[]>;
   storeFlags(settings: ImapSettings, folder: string, uids: number[], mode: FlagMode, flags: string[]): Promise<StoredFlag[]>;
-  appendMessage(settings: ImapSettings, folder: string, rfc822: string, flags: string[]): Promise<{ uid: number | null }>;
+  appendMessage(settings: ImapSettings, folder: string, rfc822: string | Uint8Array, flags: string[]): Promise<{ uid: number | null }>;
   searchUids(settings: ImapSettings, folder: string, criteria: ImapSearchCriteria): Promise<number[]>;
 }
 
 export interface SmtpPort {
   test(settings: SmtpSettings): Promise<void>;
-  send(settings: SmtpSettings, message: OutboundMail): Promise<void>;
+  send(settings: SmtpSettings, message: OutboundMail): Promise<{ messageId: string; raw: Uint8Array | null }>;
+}
+
+export type WebhookMessage = {
+  id: string;
+  folder: string;
+  uid: number;
+  from: string;
+  to: string;
+  subject: string;
+  date: string | null;
+  snippet: string;
+};
+
+export type WebhookEvent = {
+  mailboxId: string;
+  displayName: string;
+  email: string;
+  hooks: MailboxWebhook[];
+  count: number;
+  messages: WebhookMessage[];
+};
+
+export interface WebhookPort {
+  notify(event: WebhookEvent): Promise<void>;
 }
 
 export interface ProviderCatalog {

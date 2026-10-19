@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -20,10 +21,19 @@ const draftSchema = z.object({
   displayName: z.string().max(120).optional().default(""),
   description: z.string().max(500).optional().default(""),
   instructions: z.string().max(2000).optional().default(""),
+  webhooks: z.array(z.object({
+    url: z.string().max(500),
+    method: z.enum(["POST", "PUT", "PATCH"]).optional().default("POST"),
+    secret: z.string().max(500).optional().default(""),
+    header: z.string().max(500).optional().default(""),
+    excludedFolders: z.array(z.string().max(400)).max(200).optional().default([]),
+  }).strict()).max(5).optional().default([]),
   email: z.string().trim().min(3).max(320),
   providerId: z.string().max(80).nullable().optional().default(null),
   imap: channelSchema.nullable().optional().default(null),
   smtp: channelSchema.nullable().optional().default(null),
+  sentFolder: z.string().max(400).optional().default(""),
+  serverStoresSent: z.boolean().optional().default(false),
 });
 
 const sendSchema = z.object({
@@ -34,6 +44,13 @@ const sendSchema = z.object({
   subject: z.string().max(998).default(""),
   text: z.string().max(1_000_000).default(""),
   html: z.string().max(1_000_000).optional(),
+  fromName: z.string().max(100, "Der Absendername ist länger als 100 Zeichen.").optional(),
+  attachments: z.array(z.object({
+    filename: z.string().min(1).max(255),
+    contentType: z.string().max(200).optional(),
+    contentBase64: z.string().min(1).max(28_000_000),
+    contentId: z.string().max(255).optional(),
+  }).strict()).max(10).optional(),
 });
 
 export function createApp(container: Container): express.Express {
@@ -47,13 +64,17 @@ export function createApp(container: Container): express.Express {
     res.setHeader("X-Frame-Options", "DENY");
     next();
   });
-  router.use(express.json({ limit: "1mb" }));
+  router.use(express.json({ limit: "40mb" }));
   mountMcp(router, container);
   mountApi(router, container);
   mountSpa(router, container);
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
     if (error instanceof AppError) {
       res.status(error.status).json({ error: error.code, message: error.message });
+      return;
+    }
+    if (isTooLarge(error)) {
+      res.status(413).json({ error: "payload_too_large", message: "Die Anfrage ist zu groß. Anhänge dürfen zusammen 20 MB nicht überschreiten." });
       return;
     }
     if (error instanceof z.ZodError) {
@@ -73,6 +94,15 @@ function mountApi(router: express.Router, container: Container): void {
 
   router.get("/api/health", (_req, res) => {
     res.json({ ok: true });
+  });
+
+  router.post("/api/cron/sync", (req, res) => {
+    if (!authorizedCron(container.config.cronSecret, req.get("x-cron-secret"))) {
+      res.status(401).json({ error: "unauthorized", message: "Anmeldung erforderlich." });
+      return;
+    }
+    container.indexer.kick();
+    res.status(202).json({ ok: true });
   });
 
   router.post("/api/auth/login", asyncRoute(async (req, res) => {
@@ -174,6 +204,21 @@ function mountApi(router: express.Router, container: Container): void {
     res.status(201).json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
   }));
 
+  router.patch("/api/mailboxes/:id/webhooks", asyncRoute(async (req, res) => {
+    const body = z.object({
+      webhooks: z.array(z.object({
+        url: z.string().max(500),
+        method: z.enum(["POST", "PUT", "PATCH"]).optional().default("POST"),
+        secret: z.string().max(500).optional().default(""),
+        header: z.string().max(500).optional().default(""),
+        excludedFolders: z.array(z.string().max(400)).max(200).optional().default([]),
+      }).strict()).max(5),
+    }).parse(req.body);
+    const user = currentUser(container, req);
+    const mailbox = container.mailboxes.setWebhooks(user, req.params.id, body.webhooks);
+    res.json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
+  }));
+
   router.patch("/api/mailboxes/:id", asyncRoute(async (req, res) => {
     const mailbox = await container.mailboxes.update(currentUser(container, req), req.params.id, draftSchema.parse(req.body));
     res.json({ mailbox: publicMailbox(mailbox, container.sync.progress(mailbox.id)) });
@@ -266,7 +311,7 @@ function mountApi(router: express.Router, container: Container): void {
 
   router.post("/api/messages/send", asyncRoute(async (req, res) => {
     const body = sendSchema.parse(req.body);
-    await container.mail.send(currentUser(container, req), {
+    const sent = await container.mail.send(currentUser(container, req), {
       mailboxId: body.mailboxId,
       to: asList(body.to),
       cc: asList(body.cc),
@@ -274,8 +319,10 @@ function mountApi(router: express.Router, container: Container): void {
       subject: body.subject,
       text: body.text,
       html: body.html,
+      fromName: body.fromName,
+      attachments: body.attachments,
     });
-    res.status(202).json({ ok: true });
+    res.status(202).json(sent);
   }));
 }
 
@@ -297,6 +344,16 @@ function mountSpa(router: express.Router, container: Container): void {
   });
 }
 
+function authorizedCron(secret: string, header: string | undefined): boolean {
+  const given = header ?? "";
+  if (!secret || given.length !== secret.length) return false;
+  return timingSafeEqual(Buffer.from(given), Buffer.from(secret));
+}
+
+function isTooLarge(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && "type" in error && (error as { type?: string }).type === "entity.too.large");
+}
+
 function currentUser(container: Container, req: Request): PublicUser {
   const user = container.auth.userFromSession(readCookie(req.headers.cookie, COOKIE));
   if (!user) throw unauthorized();
@@ -309,10 +366,15 @@ function publicMailbox(mailbox: Mailbox, progress: { messageTotal: number | null
     displayName: mailbox.displayName,
     description: mailbox.description,
     instructions: mailbox.instructions,
+    webhooks: mailbox.webhooks,
+    webhookExcludedFolders: mailbox.webhookExcludedFolders ?? [],
     email: mailbox.email,
     providerId: mailbox.providerId,
     imap: mailbox.imap,
     smtp: mailbox.smtp,
+    sentFolder: mailbox.sentFolder ?? "",
+    serverStoresSent: mailbox.serverStoresSent ?? false,
+    signatures: mailbox.signatures ?? [],
     indexStatus: mailbox.indexStatus,
     indexedCount: mailbox.indexedCount,
     messageTotal: progress.messageTotal,

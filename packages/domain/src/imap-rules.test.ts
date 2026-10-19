@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyFlagMode, buildPlainMessage, filterDirectChildren, inferDelimiter, normalizeFlag, rewriteFolderPath } from "./imap-rules.js";
+import { applyFlagMode, buildPlainMessage, filterDirectChildren, inferDelimiter, normalizeFlag, resolveSentFolder, rewriteFolderPath, sentFolderPath, shouldSaveToSent } from "./imap-rules.js";
 
 test("flags accept system names and custom keywords", () => {
   assert.equal(normalizeFlag("seen"), "\\Seen");
@@ -11,6 +11,26 @@ test("flags accept system names and custom keywords", () => {
   assert.deepEqual(applyFlagMode(["\\Seen"], "set", ["\\Answered"]), ["\\Answered"]);
   assert.throws(() => normalizeFlag("\\Recent"));
   assert.throws(() => normalizeFlag("leer zeichen"));
+});
+
+test("the sent folder is the special-use folder, otherwise a known name", () => {
+  assert.equal(sentFolderPath([
+    { path: "INBOX", specialUse: null },
+    { path: "INBOX.Gesendet", specialUse: "\\Sent" },
+    { path: "Sent", specialUse: null },
+  ]), "INBOX.Gesendet");
+  assert.equal(sentFolderPath([
+    { path: "INBOX", specialUse: null },
+    { path: "INBOX.Sent Items", specialUse: null },
+  ]), "INBOX.Sent Items");
+  assert.equal(sentFolderPath([{ path: "INBOX", specialUse: null, selectable: true }]), null);
+  assert.equal(sentFolderPath([{ path: "Sent", specialUse: "\\Sent", selectable: false }]), null);
+  assert.equal(sentFolderPath([{ path: "Sent Messages", specialUse: null }]), "Sent Messages");
+  assert.equal(resolveSentFolder([{ path: "Sent", specialUse: "\\Sent" }], "Gesendet"), "Gesendet");
+  assert.equal(shouldSaveToSent(undefined, false), true);
+  assert.equal(shouldSaveToSent(undefined, true), false);
+  assert.equal(shouldSaveToSent(true, true), true);
+  assert.equal(shouldSaveToSent(false, false), false);
 });
 
 test("direct children follow the delimiter that the paths already use", () => {

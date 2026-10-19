@@ -3,6 +3,7 @@ import { useAuth } from './auth';
 import { LoginPage, JoinPage } from './pages/AuthPages';
 import { HomePage } from './pages/HomePage';
 import { MailboxFormPage } from './pages/MailboxFormPage';
+import { SignaturePreviewPage } from './pages/SignaturePreviewPage';
 import { SearchPage } from './pages/SearchPage';
 import { TokensPage } from './pages/TokensPage';
 import { InvitesPage } from './pages/InvitesPage';
@@ -11,6 +12,7 @@ import { LanguageSwitcher, useI18n } from './LanguageSwitcher';
 import { LandingPage } from './pages/LandingPage';
 import { ChangelogPage } from './pages/ChangelogPage';
 import { ImpressumPage, PrivacyPage } from './pages/LegalPages';
+import { appVersion } from './version';
 
 function Shell() {
   const { user, loading, logout } = useAuth();
@@ -21,7 +23,10 @@ function Shell() {
   return (
     <div className="app">
       <aside className="rail">
-        <Link className="brand brand-settle" to="/">MailConnect</Link>
+        <div className="rail-brand">
+          <Link className="brand brand-settle" to="/">MailConnect</Link>
+          <Link className="rail-version" to="/changelog">Version {appVersion}</Link>
+        </div>
         <nav className="nav" aria-label={m.navMain}>
           <NavLink to="/postfaecher" end>{m.mailboxes}</NavLink>
           <NavLink to="/search">{m.search}</NavLink>
@@ -52,6 +57,7 @@ export function App() {
       <Route element={<Shell />}>
         <Route path="postfaecher" element={<HomePage />} />
         <Route path="mailboxes/new" element={<MailboxFormPage />} />
+        <Route path="mailboxes/:id/signaturen/:signatureId" element={<SignaturePreviewPage />} />
         <Route path="mailboxes/:id" element={<MailboxFormPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="tokens" element={<TokensPage />} />

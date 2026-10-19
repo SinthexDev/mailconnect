@@ -1,5 +1,199 @@
 # MailConnect – Änderungen
 
+## Version 1.1.43 - 20. Oktober 2026
+### Signaturvorschau steht rechts
+
+Die Vorschau öffnete einen eigenen Tab ohne Weg zurück.
+
+#### Verbesserungen
+
+- **Signaturen**: Ein Klick auf einen Eintrag zeigt den Text rechts daneben, Plain Text und HTML. Die eigene Seite behält einen Link zurück zu den Signaturen des Postfachs.
+
+---
+
+## Version 1.1.42 - 19. Oktober 2026
+### Signaturen für Agents
+
+Signaturen lagen bisher nur im Mailtext, den ein Agent selbst schreiben musste. Es gab keinen Ort, sie zu hinterlegen oder anzusehen.
+
+#### Neue Funktionen
+
+- **Signaturen**: Pro Postfach eine Standard-Signatur und bis zu 50 weitere. Jede hat einen Titel, den Typ Plain Text oder HTML, den Text und Handlungsanweisungen. Agents legen sie mit `save_mailbox_signature` an, lesen sie mit `list_mailbox_signatures` und entfernen sie mit `delete_mailbox_signature`.
+- **Ansehen**: Im Postfach unter Signaturen öffnet „Ansehen“ den Text in einem neuen Tab. HTML wird dargestellt, ohne Skripte auszuführen. Plain Text bleibt Zeilenumbruch für Zeilenumbruch.
+
+---
+
+## Version 1.1.41 - 19. Oktober 2026
+### Gesendet lässt sich steuern
+
+Die Kopie nach dem Senden lag immer an, ohne Schalter und ohne eigenen Ordnernamen. Die Antwort hieß noch `saved`. `append_message` nahm nur 1 MB an.
+
+#### Verbesserungen
+
+- **Versand**: `saveToSent` steuert die Kopie. Standard ist an, außer das Postfach sagt, der Server speichert selbst. Die abgelegte Nachricht sind dieselben Bytes wie beim Versand, mit `\\Seen`. Die Antwort nennt `sentFolder`, `sentUid`, `savedToSent` und bei einem Fehler `saveError`. Der Versand bleibt gültig, wenn nur das Ablegen scheitert.
+- **Postfach**: Eigener Gesendet-Ordner und der Schalter „Der Server speichert Gesendet selbst“, in der Oberfläche unter Verbindung.
+- **Nachrichten**: `append_message` nimmt eine RFC822-Nachricht bis 28 MB an. Eine vorhandene Kopie ersetzt man, indem man sie mit `delete_messages` löscht und die vollständige Nachricht neu ablegt.
+
+---
+
+## Version 1.1.40 - 19. Oktober 2026
+### Gesendete Mails landen im Ordner Gesendet
+
+Eine Mail über MCP ging nur über SMTP raus. Im Postfach war sie danach nicht zu sehen.
+
+#### Verbesserungen
+
+- **Versand**: Nach dem Senden legt MailConnect die Mail im Ordner Gesendet ab und in den Index. Fehlt der Ordner, wird Sent angelegt. Die Antwort nennt `sentFolder` und `saved`.
+
+---
+
+## Version 1.1.39 - 18. Oktober 2026
+### Ordner-Auswahl spricht von Ausschlüssen
+
+Die Ordnerliste im Webhook-Fenster benutzte Häkchen für „enthalten“.
+
+#### Verbesserungen
+
+- **Webhook**: Jede Zeile zeigt ein × für ausgeschlossen. Ohne × ist der Ordner aktiv. Der Hinweistext spricht von Ausschlüssen. Ausgeschlossene Ordner sind durchgestrichen.
+
+---
+
+## Version 1.1.38 - 18. Oktober 2026
+### Ordner gehören zum einzelnen Webhook
+
+Die Ordnerliste stand auf der Postfachseite, für alle Webhooks gleich.
+
+#### Verbesserungen
+
+- **Webhook**: Welche Ordner still bleiben, stellt man im Fenster des jeweiligen Webhooks ein. Ohne Haken steht dort „ausgeschlossen“.
+- **Postfach**: Neben dem Hauptmenü liegen die Bereiche Allgemein, Verbindung und Webhooks.
+- **MCP**: `set_webhook_folders` gilt für einen Webhook, erkannt an seiner Adresse.
+
+---
+
+## Version 1.1.37 - 18. Oktober 2026
+### Webhooks lassen sich pro Ordner ausschalten
+
+Neue Post hat in jedem Ordner den Webhook ausgelöst.
+
+#### Verbesserungen
+
+- **Ordner**: Am Postfach sind alle Ordner angehakt. Ein Haken weniger nimmt den Ordner aus. Unterordner bleiben eigene Einträge.
+- **MCP**: `set_webhook_folders` setzt diese Liste. `list_mailbox_webhooks` zeigt sie als `excludedFolders`.
+
+---
+
+## Version 1.1.36 - 18. Oktober 2026
+### Der Agent trägt Webhooks selbst ein
+
+Webhooks ließen sich nur in der Oberfläche speichern.
+
+#### Verbesserungen
+
+- **MCP**: `set_mailbox_webhooks` ersetzt die Webhooks eines Postfachs. `list_mailbox_webhooks` zeigt Adresse, Methode und Header, den Schlüssel nur als gesetzt oder nicht.
+
+---
+
+## Version 1.1.35 - 18. Oktober 2026
+### Der Webhook bleibt gespeichert
+
+Der Knopf im Fenster hat den Webhook nur in der Seite gehalten. Nach dem Verlassen war er weg.
+
+#### Behoben
+
+- **Webhook**: Speichern schreibt den Webhook sofort ans Postfach. Entfernen ebenfalls.
+
+---
+
+## Version 1.1.34 - 18. Oktober 2026
+### Anbieter-Hinweise sehen nicht mehr wie Fehler aus
+
+Der Hinweis zum Benutzernamen stand in Koralle unter dem Anbieter und wirkte wie eine Fehlermeldung.
+
+#### Verbesserungen
+
+- **Hinweis**: Ruhiges Marineblau, kleinere Schrift. Fehler bleiben rot.
+
+---
+
+## Version 1.1.33 - 18. Oktober 2026
+### Der Webhook-Knopf sitzt unter dem Text
+
+Der Plus-Knopf stand rechts neben der Überschrift und klebte am Satz darunter.
+
+#### Behoben
+
+- **Webhook**: Überschrift, Erklärung und Knopf stehen untereinander, mit Abstand dazwischen.
+
+---
+
+## Version 1.1.32 - 18. Oktober 2026
+### Webhooks mit Methode, Schlüssel und Header
+
+Ein Webhook war nur eine Adresse und ging immer als POST hinaus. Cursor braucht dazu den Schlüssel und den Authorization-Header.
+
+#### Verbesserungen
+
+- **Webhook**: Über den Plus-Knopf öffnet sich ein Fenster. Dort stehen Methode (POST, PUT oder PATCH), Adresse, Schlüssel und Header. Der Schlüssel geht als Bearer mit, solange der Header keinen eigenen Authorization-Wert setzt.
+
+---
+
+## Version 1.1.31 - 18. Oktober 2026
+### Jede Minute prüfen, und Webhooks bei neuer Post
+
+Der Abgleich lief nur im Prozess, etwa alle zwei Minuten. Ein Bot erfuhr von neuer Post erst, wenn er selbst nachsah.
+
+#### Neue Features
+
+- **Cron**: Jede Minute stößt ein Cron-Lauf die Prüfung an. Ein Postfach, das schon eingelesen ist, schaut nur nach neuen Nachrichtennummern. Der erste große Lauf bleibt wie bisher im Hintergrund.
+- **Webhooks**: Am Postfach stehen bis zu fünf https-Adressen. Kommt nach dem ersten Einlesen neue Post an, ruft MailConnect sie mit Absender, Betreff und Index-ID auf. Der erste Lauf meldet die alten Mails nicht.
+
+---
+
+## Version 1.1.30 - 18. Oktober 2026
+### Der Agent stößt den Abgleich an
+
+Neue Mails kamen manchmal nicht von allein im Index an. Der Agent konnte den Abgleich nicht zuverlässig starten.
+
+#### Verbesserungen
+
+- **Abgleich**: `sync_mailbox` startet den Abgleich. Ohne Postfach gilt das für alle eigenen Konten, die nicht gestoppt sind. Ein genanntes Postfach läuft auch nach Stoppen wieder an. Die Antwort nennt den Stand. Die Suche danach sieht die neuen Mails, sobald der Lauf sie geholt hat.
+
+---
+
+## Version 1.1.29 - 17. Oktober 2026
+### Der Absendername kommt aus dem Postfach
+
+Beim Versand stand nur die Adresse. Ein Name wie „Vanessa | Sinthex“ fehlte.
+
+#### Neue Features
+
+- **Absender**: Der Anzeigename des Postfachs steht beim Senden vor der Adresse. `fromName` überschreibt ihn für eine einzelne Mail, höchstens 100 Zeichen.
+
+---
+
+## Version 1.1.28 - 17. Oktober 2026
+### Die Versionsnummer steht in der Anwendung
+
+In der angemeldeten Oberfläche war nicht zu sehen, welche Version läuft.
+
+#### Verbesserungen
+
+- **Version**: Unter dem Namen in der Seitenleiste steht die Versionsnummer. Sie führt zur Änderungsliste.
+
+---
+
+## Version 1.1.27 - 17. Oktober 2026
+### Der Agent verschickt Anhänge
+
+Eine Mail ging nur als Text hinaus. Dateien wie ein Mockup oder eine ZIP kamen nicht mit.
+
+#### Neue Features
+
+- **Versand**: `send_email` nimmt bis zu 10 Anhänge als Base64. Zusammen dürfen sie 20 MB nicht überschreiten. Die Antwort nennt `messageId` und `attachmentCount`.
+
+---
+
 ## Version 1.1.26 - 15. Oktober 2026
 ### Button-Links kommen beim Agenten an
 

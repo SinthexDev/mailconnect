@@ -44,6 +44,11 @@ test("auth, invite and full text index", async () => {
     displayName: "Arbeit",
     description: "Rechnungen der Firma",
     instructions: "Spam darf gelöscht werden.",
+    webhooks: [],
+    webhookExcludedFolders: [],
+    signatures: [],
+    sentFolder: "",
+    serverStoresSent: false,
     email: "admin@example.com",
     providerId: "custom",
     imap: { host: "imap.example", port: 993, secure: true, username: "admin@example.com" },
@@ -59,6 +64,16 @@ test("auth, invite and full text index", async () => {
   });
   assert.equal(db.mailboxes.findById("box-1")?.description, "Rechnungen der Firma");
   assert.equal(db.mailboxes.findById("box-1")?.instructions, "Spam darf gelöscht werden.");
+  assert.equal(db.mailboxes.setWebhooks("box-1", admin.id, [{ url: "https://bot.example/hook", method: "PUT", secret: "key", header: "X-Api-Key: abc", excludedFolders: ["INBOX.Spam"] }], now), true);
+  assert.equal(db.mailboxes.findById("box-1")?.webhooks[0]?.method, "PUT");
+  assert.equal(db.mailboxes.findById("box-1")?.webhooks[0]?.header, "X-Api-Key: abc");
+  assert.deepEqual(db.mailboxes.findById("box-1")?.webhooks[0]?.excludedFolders, ["INBOX.Spam"]);
+  db.db.prepare("UPDATE mailboxes SET webhooks = ?, webhook_excluded_folders = ? WHERE id = ?").run(
+    JSON.stringify([{ url: "https://bot.example/hook", method: "POST", secret: "", header: "" }]),
+    JSON.stringify(["Archiv"]),
+    "box-1",
+  );
+  assert.deepEqual(db.mailboxes.findById("box-1")?.webhooks[0]?.excludedFolders, ["Archiv"]);
   db.credentials.upsert("box-1", "imap", vault.encrypt("secret-imap"));
   assert.equal(vault.decrypt(db.credentials.get("box-1", "imap")!), "secret-imap");
 
@@ -175,6 +190,11 @@ test("index follows folder moves, copies, flags and renames", async () => {
     displayName: "Arbeit",
     description: "",
     instructions: "",
+    webhooks: [],
+    webhookExcludedFolders: [],
+    signatures: [],
+    sentFolder: "",
+    serverStoresSent: false,
     email: "admin@example.com",
     providerId: null,
     imap: { host: "imap.example", port: 993, secure: true, username: "admin@example.com" },

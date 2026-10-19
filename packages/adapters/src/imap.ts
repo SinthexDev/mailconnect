@@ -231,7 +231,8 @@ export const imapAdapter: ImapPort = {
 
   appendMessage(settings, folder, rfc822, flags) {
     return withClient(settings, async (client) => {
-      const appended = await client.append(folder, rfc822, flags);
+      const body = typeof rfc822 === "string" ? rfc822 : Buffer.from(rfc822);
+      const appended = await client.append(folder, body, flags);
       if (!appended) throw new AppError("imap_store", "IMAP: Die Nachricht wurde nicht abgelegt.", 400);
       return { uid: typeof appended.uid === "number" ? appended.uid : null };
     });

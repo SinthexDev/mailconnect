@@ -10,6 +10,7 @@ export type AppConfig = {
   sessionSecret: string;
   secureCookies: boolean;
   pollMs: number;
+  cronSecret: string;
   syncBatch: number;
   webDist: string;
 };
@@ -51,7 +52,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     masterKey,
     sessionSecret,
     secureCookies: env.NODE_ENV === "production",
-    pollMs: Number(env.INDEX_POLL_MS ?? 120_000),
+    pollMs: Number(env.INDEX_POLL_MS ?? 300_000),
+    cronSecret: env.CRON_SECRET ?? "",
     syncBatch: Number(env.INDEX_BATCH ?? 80),
     webDist: env.WEB_DIST ?? "./public",
   };

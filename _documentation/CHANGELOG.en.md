@@ -1,5 +1,199 @@
 # MailConnect – Changes
 
+## Version 1.1.43 - 20 October 2026
+### The signature preview sits on the right
+
+The preview opened its own tab and had no way back.
+
+#### Improvements
+
+- **Signatures**: A click on an entry shows the text beside it, plain text and HTML. The separate page keeps a link back to the mailbox signatures.
+
+---
+
+## Version 1.1.42 - 19 October 2026
+### Signatures for agents
+
+Signatures used to live only in the mail text an agent had to write itself. There was no place to store or view them.
+
+#### New features
+
+- **Signatures**: One default signature per mailbox and up to 50 more. Each has a title, the type plain text or HTML, the text, and instructions. Agents create them with `save_mailbox_signature`, read them with `list_mailbox_signatures`, and remove them with `delete_mailbox_signature`.
+- **View**: In the mailbox, under Signatures, “View” opens the text in a new tab. HTML is rendered without running scripts. Plain text keeps its line breaks.
+
+---
+
+## Version 1.1.41 - 19 October 2026
+### Sent storage can be controlled
+
+The copy after sending was always on, without a switch and without a folder name of its own. The reply still said `saved`. `append_message` accepted only 1 MB.
+
+#### Improvements
+
+- **Sending**: `saveToSent` controls the copy. The default is on, unless the mailbox says the server stores it. The stored message is the same bytes that were sent, with `\\Seen`. The reply includes `sentFolder`, `sentUid`, `savedToSent` and, on failure, `saveError`. Sending still succeeds when only storing fails.
+- **Mailbox**: A custom Sent folder and the switch “The server stores Sent itself”, in the interface under Connection.
+- **Messages**: `append_message` accepts an RFC822 message up to 28 MB. Replace an existing copy by deleting it with `delete_messages` and appending the complete message.
+
+---
+
+## Version 1.1.40 - 19 October 2026
+### Sent mail is stored in the Sent folder
+
+A mail sent through MCP only left via SMTP. It was not in the mailbox afterwards.
+
+#### Improvements
+
+- **Sending**: After sending, MailConnect stores the mail in the Sent folder and in the index. If that folder is missing, Sent is created. The reply includes `sentFolder` and `saved`.
+
+---
+
+## Version 1.1.39 - 18 October 2026
+### Folder selection speaks of exclusions
+
+The folder list in the webhook window used checkmarks for “included”.
+
+#### Improvements
+
+- **Webhook**: Each row shows an × for excluded. Without an × the folder is active. The hint text speaks of exclusions. Excluded folders are struck through.
+
+---
+
+## Version 1.1.38 - 18 October 2026
+### Folders belong to one webhook
+
+The folder list sat on the mailbox page and applied to every webhook.
+
+#### Improvements
+
+- **Webhook**: Which folders stay quiet is set in that webhook’s window. Without a check it says “excluded”.
+- **Mailbox**: Next to the main menu are the sections General, Connection and Webhooks.
+- **MCP**: `set_webhook_folders` applies to one webhook, identified by its address.
+
+---
+
+## Version 1.1.37 - 18 October 2026
+### Webhooks can be turned off per folder
+
+New mail fired the webhook in every folder.
+
+#### Improvements
+
+- **Folders**: On a mailbox every folder starts checked. Removing a check excludes that folder. Subfolders stay separate entries.
+- **MCP**: `set_webhook_folders` sets this list. `list_mailbox_webhooks` shows it as `excludedFolders`.
+
+---
+
+## Version 1.1.36 - 18 October 2026
+### The agent stores webhooks itself
+
+Webhooks could only be saved in the interface.
+
+#### Improvements
+
+- **MCP**: `set_mailbox_webhooks` replaces the webhooks of a mailbox. `list_mailbox_webhooks` shows address, method and header. The key is only reported as set or not.
+
+---
+
+## Version 1.1.35 - 18 October 2026
+### The webhook stays saved
+
+The button in the window kept the webhook only on the page. After leaving, it was gone.
+
+#### Fixed
+
+- **Webhook**: Save writes the webhook to the mailbox immediately. Remove does the same.
+
+---
+
+## Version 1.1.34 - 18 October 2026
+### Provider notes no longer look like errors
+
+The username note under the provider was coral and read like an error message.
+
+#### Improvements
+
+- **Note**: Calm navy, smaller text. Errors stay red.
+
+---
+
+## Version 1.1.33 - 18 October 2026
+### The webhook button sits under the text
+
+The plus button stood to the right of the heading and pressed against the sentence below.
+
+#### Fixed
+
+- **Webhook**: Heading, explanation, and button are stacked, with space between them.
+
+---
+
+## Version 1.1.32 - 18 October 2026
+### Webhooks with method, key, and header
+
+A webhook was only an address and always went out as POST. Cursor also needs the key and the Authorization header.
+
+#### Improvements
+
+- **Webhook**: The plus button opens a window. It holds the method (POST, PUT, or PATCH), address, key, and header. The key is sent as Bearer unless the header already sets Authorization.
+
+---
+
+## Version 1.1.31 - 18 October 2026
+### Check every minute, and webhooks for new mail
+
+Sync ran only inside the process, about every two minutes. A bot learned about new mail only when it looked.
+
+#### New features
+
+- **Cron**: Every minute a cron run starts the check. A mailbox that is already indexed only looks for new message numbers. The first large pass still runs in the background.
+- **Webhooks**: A mailbox can store up to five https addresses. After the first indexing pass, new mail makes MailConnect call them with sender, subject, and index id. The first pass does not report the old mail.
+
+---
+
+## Version 1.1.30 - 18 October 2026
+### The agent can start a sync
+
+New mail sometimes did not reach the index on its own. The agent could not reliably start the sync.
+
+#### Improvements
+
+- **Sync**: `sync_mailbox` starts the sync. Without a mailbox it covers every account that is not stopped. A named mailbox starts again even after a stop. The reply includes the current progress. A later search sees the new mail once that pass has fetched it.
+
+---
+
+## Version 1.1.29 - 17 October 2026
+### The sender name comes from the mailbox
+
+Sending showed only the address. A name such as “Vanessa | Sinthex” was missing.
+
+#### New features
+
+- **Sender**: The mailbox display name is placed in front of the address when mail goes out. `fromName` overrides it for a single mail, at most 100 characters.
+
+---
+
+## Version 1.1.28 - 17 October 2026
+### The version number is in the application
+
+The signed-in interface did not show which version is running.
+
+#### Improvements
+
+- **Version**: The version number sits under the name in the sidebar. It opens the changelog.
+
+---
+
+## Version 1.1.27 - 17 October 2026
+### The agent can send attachments
+
+A mail went out as text only. Files such as a mockup or a zip did not go with it.
+
+#### New features
+
+- **Sending**: `send_email` accepts up to 10 attachments as Base64. Together they may not exceed 20 MB. The reply includes `messageId` and `attachmentCount`.
+
+---
+
 ## Version 1.1.26 - 15 October 2026
 ### Button links reach the agent
 

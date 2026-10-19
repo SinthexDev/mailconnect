@@ -2,6 +2,7 @@ import type { SyncService } from "@mailconnect/domain";
 
 export type Indexer = {
   nudge(mailboxId: string): void;
+  kick(): void;
   stop(): void;
 };
 
@@ -31,6 +32,9 @@ export function startIndexer(sync: SyncService, pollMs: number): Indexer {
   return {
     nudge(mailboxId: string) {
       pending.add(mailboxId);
+      void run();
+    },
+    kick() {
       void run();
     },
     stop() {

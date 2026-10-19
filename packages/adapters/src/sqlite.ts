@@ -73,6 +73,9 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   display_name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   instructions TEXT NOT NULL DEFAULT '',
+  webhooks TEXT NOT NULL DEFAULT '[]',
+  webhook_excluded_folders TEXT NOT NULL DEFAULT '[]',
+  signatures TEXT NOT NULL DEFAULT '[]',
   email TEXT NOT NULL,
   provider_id TEXT,
   imap_host TEXT,
@@ -83,6 +86,8 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   smtp_port INTEGER,
   smtp_secure INTEGER,
   smtp_username TEXT,
+  sent_folder TEXT NOT NULL DEFAULT '',
+  server_stores_sent INTEGER NOT NULL DEFAULT 0,
   index_status TEXT NOT NULL,
   indexed_count INTEGER NOT NULL DEFAULT 0,
   last_sync_at TEXT,
@@ -168,6 +173,9 @@ type MailboxRow = {
   display_name: string;
   description: string;
   instructions: string;
+  webhooks: string;
+  webhook_excluded_folders: string;
+  signatures: string;
   email: string;
   provider_id: string | null;
   imap_host: string | null;
@@ -178,6 +186,8 @@ type MailboxRow = {
   smtp_port: number | null;
   smtp_secure: number | null;
   smtp_username: string | null;
+  sent_folder: string;
+  server_stores_sent: number;
   index_status: Mailbox["indexStatus"];
   indexed_count: number;
   last_sync_at: string | null;
@@ -216,6 +226,72 @@ function channel(
   return { host, port, secure: secure === 1, username };
 }
 
+function storedFolderList(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => typeof item === "string" && item.trim() ? [item.trim()] : []);
+  } catch {
+    return [];
+  }
+}
+
+function storedWebhooks(value: string | null, inheritedFolders: string[]): Mailbox["webhooks"] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (typeof item === "string" && item.trim()) {
+        return [{ url: item.trim(), method: "POST" as const, secret: "", header: "", excludedFolders: inheritedFolders }];
+      }
+      if (!item || typeof item !== "object") return [];
+      const record = item as { url?: unknown; method?: unknown; secret?: unknown; header?: unknown; excludedFolders?: unknown };
+      if (typeof record.url !== "string" || !record.url.trim()) return [];
+      const method = record.method === "PUT" || record.method === "PATCH" ? record.method : "POST";
+      const ownFolders = Array.isArray(record.excludedFolders)
+        ? record.excludedFolders.flatMap((folder) => typeof folder === "string" && folder.trim() ? [folder.trim()] : [])
+        : inheritedFolders;
+      return [{
+        url: record.url.trim(),
+        method,
+        secret: typeof record.secret === "string" ? record.secret : "",
+        header: typeof record.header === "string" ? record.header : "",
+        excludedFolders: ownFolders,
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function storedSignatures(value: string | null | undefined): Mailbox["signatures"] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as { id?: unknown; title?: unknown; kind?: unknown; body?: unknown; instructions?: unknown; isDefault?: unknown };
+      const id = typeof record.id === "string" ? record.id : "";
+      const title = typeof record.title === "string" ? record.title : "";
+      const kind = record.kind === "html" || record.kind === "plain" ? record.kind : null;
+      if (!id || !title || !kind) return [];
+      return [{
+        id,
+        title,
+        kind,
+        body: typeof record.body === "string" ? record.body : "",
+        instructions: typeof record.instructions === "string" ? record.instructions : "",
+        isDefault: record.isDefault === true,
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 function mapMailbox(row: MailboxRow): Mailbox {
   return {
     id: row.id,
@@ -223,10 +299,15 @@ function mapMailbox(row: MailboxRow): Mailbox {
     displayName: row.display_name,
     description: row.description,
     instructions: row.instructions,
+    webhooks: storedWebhooks(row.webhooks, storedFolderList(row.webhook_excluded_folders)),
+    webhookExcludedFolders: storedFolderList(row.webhook_excluded_folders),
+    signatures: storedSignatures(row.signatures),
     email: row.email,
     providerId: row.provider_id,
     imap: channel(row.imap_host, row.imap_port, row.imap_secure, row.imap_username),
     smtp: channel(row.smtp_host, row.smtp_port, row.smtp_secure, row.smtp_username),
+    sentFolder: row.sent_folder ?? "",
+    serverStoresSent: row.server_stores_sent === 1,
     indexStatus: row.index_status,
     indexedCount: row.indexed_count,
     lastSyncAt: row.last_sync_at,
@@ -392,6 +473,21 @@ export class SqliteDatabase {
       if (!columns.some((column) => column.name === name)) {
         this.db.exec(`ALTER TABLE mailboxes ADD COLUMN ${name} TEXT NOT NULL DEFAULT ''`);
       }
+    }
+    if (!columns.some((column) => column.name === "webhooks")) {
+      this.db.exec("ALTER TABLE mailboxes ADD COLUMN webhooks TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!columns.some((column) => column.name === "webhook_excluded_folders")) {
+      this.db.exec("ALTER TABLE mailboxes ADD COLUMN webhook_excluded_folders TEXT NOT NULL DEFAULT '[]'");
+    }
+    if (!columns.some((column) => column.name === "sent_folder")) {
+      this.db.exec("ALTER TABLE mailboxes ADD COLUMN sent_folder TEXT NOT NULL DEFAULT ''");
+    }
+    if (!columns.some((column) => column.name === "server_stores_sent")) {
+      this.db.exec("ALTER TABLE mailboxes ADD COLUMN server_stores_sent INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!columns.some((column) => column.name === "signatures")) {
+      this.db.exec("ALTER TABLE mailboxes ADD COLUMN signatures TEXT NOT NULL DEFAULT '[]'");
     }
     const folderColumns = this.db.prepare("PRAGMA table_info(folder_sync)").all() as Array<{ name: string }>;
     if (!folderColumns.some((column) => column.name === "remote_count")) {
@@ -585,15 +681,17 @@ class MailboxRepo implements MailboxRepository {
   private write(mailbox: Mailbox, insert: boolean): void {
     const sql = insert
       ? `INSERT INTO mailboxes (
-           id, user_id, display_name, description, instructions, email, provider_id,
+           id, user_id, display_name, description, instructions, webhooks, webhook_excluded_folders, signatures, email, provider_id,
            imap_host, imap_port, imap_secure, imap_username,
            smtp_host, smtp_port, smtp_secure, smtp_username,
+           sent_folder, server_stores_sent,
            index_status, indexed_count, last_sync_at, last_error, error_streak, retry_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       : `UPDATE mailboxes SET
-           display_name = ?, description = ?, instructions = ?, email = ?, provider_id = ?,
+           display_name = ?, description = ?, instructions = ?, webhooks = ?, webhook_excluded_folders = ?, signatures = ?, email = ?, provider_id = ?,
            imap_host = ?, imap_port = ?, imap_secure = ?, imap_username = ?,
            smtp_host = ?, smtp_port = ?, smtp_secure = ?, smtp_username = ?,
+           sent_folder = ?, server_stores_sent = ?,
            index_status = ?, indexed_count = ?, last_sync_at = ?, last_error = ?, error_streak = ?, retry_at = ?, updated_at = ?
          WHERE id = ? AND user_id = ?`;
     const channelValues = [
@@ -613,9 +711,14 @@ class MailboxRepo implements MailboxRepository {
         mailbox.displayName,
         mailbox.description,
         mailbox.instructions,
+        JSON.stringify(mailbox.webhooks),
+        JSON.stringify(mailbox.webhookExcludedFolders ?? []),
+        JSON.stringify(mailbox.signatures ?? []),
         mailbox.email,
         mailbox.providerId,
         ...channelValues,
+        mailbox.sentFolder ?? "",
+        mailbox.serverStoresSent ? 1 : 0,
         mailbox.indexStatus,
         mailbox.indexedCount,
         mailbox.lastSyncAt,
@@ -631,9 +734,14 @@ class MailboxRepo implements MailboxRepository {
       mailbox.displayName,
       mailbox.description,
       mailbox.instructions,
+      JSON.stringify(mailbox.webhooks),
+      JSON.stringify(mailbox.webhookExcludedFolders ?? []),
+      JSON.stringify(mailbox.signatures ?? []),
       mailbox.email,
       mailbox.providerId,
       ...channelValues,
+      mailbox.sentFolder ?? "",
+      mailbox.serverStoresSent ? 1 : 0,
       mailbox.indexStatus,
       mailbox.indexedCount,
       mailbox.lastSyncAt,
@@ -690,6 +798,27 @@ class MailboxRepo implements MailboxRepository {
 
   setIndexedCount(id: string, indexedCount: number, updatedAt: string): void {
     this.db.prepare("UPDATE mailboxes SET indexed_count = ?, updated_at = ? WHERE id = ?").run(indexedCount, updatedAt, id);
+  }
+
+  setWebhooks(id: string, userId: string, webhooks: Mailbox["webhooks"], updatedAt: string): boolean {
+    const result = this.db
+      .prepare("UPDATE mailboxes SET webhooks = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+      .run(JSON.stringify(webhooks), updatedAt, id, userId);
+    return result.changes > 0;
+  }
+
+  setWebhookExcludedFolders(id: string, userId: string, folders: string[], updatedAt: string): boolean {
+    const result = this.db
+      .prepare("UPDATE mailboxes SET webhook_excluded_folders = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+      .run(JSON.stringify(folders), updatedAt, id, userId);
+    return result.changes > 0;
+  }
+
+  setSignatures(id: string, userId: string, signatures: Mailbox["signatures"], updatedAt: string): boolean {
+    const result = this.db
+      .prepare("UPDATE mailboxes SET signatures = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+      .run(JSON.stringify(signatures), updatedAt, id, userId);
+    return result.changes > 0;
   }
 }
 
@@ -759,7 +888,7 @@ class MessageRepo implements MessageIndexRepository {
     }));
   }
 
-  applyFolderPull(mailboxId: string, pull: FolderPull, syncedAt: string): void {
+  applyFolderPull(mailboxId: string, pull: FolderPull, syncedAt: string): string[] {
     const insert = this.db.prepare(
       `INSERT INTO messages (
          id, mailbox_id, folder, uid, message_id, thread_id, from_addr, to_addr, cc_addr,
@@ -776,14 +905,16 @@ class MessageRepo implements MessageIndexRepository {
          flags = excluded.flags,
          has_attachments = excluded.has_attachments,
          snippet = excluded.snippet,
-         body_hash = excluded.body_hash`,
+         body_hash = excluded.body_hash
+       RETURNING id`,
     );
+    const ids: string[] = [];
     const tx = this.db.transaction(() => {
       if (pull.reset) {
         this.db.prepare("DELETE FROM messages WHERE mailbox_id = ? AND folder = ?").run(mailboxId, pull.folder);
       }
       for (const message of pull.messages) {
-        insert.run(
+        const row = insert.get(
           cryptoId(),
           mailboxId,
           pull.folder,
@@ -799,7 +930,8 @@ class MessageRepo implements MessageIndexRepository {
           message.hasAttachments ? 1 : 0,
           message.snippet,
           message.bodyHash,
-        );
+        ) as { id: string };
+        ids.push(row.id);
       }
       const count = this.db.prepare("SELECT COUNT(*) AS c FROM messages WHERE mailbox_id = ? AND folder = ?").get(mailboxId, pull.folder) as { c: number };
       this.db
@@ -818,6 +950,7 @@ class MessageRepo implements MessageIndexRepository {
         .run(mailboxId, pull.folder, pull.uidValidity, pull.highestUid, count.c, pull.remoteCount, syncedAt, pull.caughtUp ? "idle" : "syncing");
     });
     tx();
+    return ids;
   }
 
   count(mailboxId: string): number {
@@ -992,6 +1125,13 @@ class MessageRepo implements MessageIndexRepository {
         JSON.stringify(message.flags),
         message.snippet,
       );
+      this.db
+        .prepare(
+          `UPDATE folder_sync
+           SET last_uid = ?
+           WHERE mailbox_id = ? AND folder = ? AND last_uid > 0 AND last_uid < ?`,
+        )
+        .run(message.uid, mailboxId, message.folder, message.uid);
       this.adjustRemoteCount(mailboxId, message.folder, 1);
       return this.refreshIndexedCounts(mailboxId);
     })();

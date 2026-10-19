@@ -46,16 +46,42 @@ export type ChannelInput = ChannelSettings & {
   password?: string;
 };
 
+export type WebhookMethod = "POST" | "PUT" | "PATCH";
+
+export type SignatureKind = "plain" | "html";
+
+export type MailSignature = {
+  id: string;
+  title: string;
+  kind: SignatureKind;
+  body: string;
+  instructions: string;
+  isDefault: boolean;
+};
+
+export type MailboxWebhook = {
+  url: string;
+  method: WebhookMethod;
+  secret: string;
+  header: string;
+  excludedFolders: string[];
+};
+
 export type Mailbox = {
   id: string;
   userId: string;
   displayName: string;
   description: string;
   instructions: string;
+  webhooks: MailboxWebhook[];
+  webhookExcludedFolders: string[];
+  signatures: MailSignature[];
   email: string;
   providerId: string | null;
   imap: ChannelSettings | null;
   smtp: ChannelSettings | null;
+  sentFolder: string;
+  serverStoresSent: boolean;
   indexStatus: IndexStatus;
   indexedCount: number;
   lastSyncAt: string | null;
@@ -167,14 +193,22 @@ export type AttachmentFile = MailAttachment & {
   data: Uint8Array;
 };
 
+export type PreparedAttachment = {
+  filename: string;
+  contentType?: string;
+  content: Uint8Array;
+  contentId?: string;
+};
+
 export type OutboundMail = {
-  from: string;
+  from: { name?: string; address: string };
   to: string[];
   cc: string[];
   bcc: string[];
   subject: string;
   text: string;
   html?: string;
+  attachments?: PreparedAttachment[];
 };
 
 export type ProviderPreset = {

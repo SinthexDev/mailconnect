@@ -24,6 +24,8 @@ rsync -a -e ssh \
 
 rsync -a -e ssh \
   "$ROOT/deploy/ensure.sh" "$REMOTE_ROOT/ensure.sh"
+rsync -a -e ssh \
+  "$ROOT/deploy/sync.sh" "$REMOTE_ROOT/sync.sh"
 
 ssh sinthex "bash -s" <<'EOF'
 set -euo pipefail
@@ -31,7 +33,7 @@ ROOT="/var/www/vhosts/sinthex.de/mailconnect"
 NODE="/opt/plesk/node/24/bin"
 mkdir -p "$ROOT/app" "$ROOT/var"
 chmod 700 "$ROOT" "$ROOT/var"
-chmod 755 "$ROOT/ensure.sh"
+chmod 755 "$ROOT/ensure.sh" "$ROOT/sync.sh"
 if [[ ! -f "$ROOT/.env" ]]; then
   umask 077
   MASTER="$(/opt/plesk/node/24/bin/node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
@@ -47,7 +49,7 @@ APP_BASE_PATH=/mailconnect
 APP_BASE_URL=https://sinthex.de/mailconnect
 DATABASE_PATH=${ROOT}/var/mailconnect.sqlite
 WEB_DIST=${ROOT}/app/public
-INDEX_POLL_MS=120000
+INDEX_POLL_MS=300000
 INDEX_BATCH=80
 MAILCONNECT_ADMIN_EMAIL=hi@sinthex.de
 MAILCONNECT_ADMIN_PASSWORD='${ADMIN_PW}'
@@ -55,6 +57,17 @@ ENV
   chmod 600 "$ROOT/.env"
   printf '%s\n' "$ADMIN_PW" > "$ROOT/var/initial-admin.txt"
   chmod 600 "$ROOT/var/initial-admin.txt"
+fi
+if ! grep -q '^CRON_SECRET=' "$ROOT/.env"; then
+  umask 077
+  CRON="$(/opt/plesk/node/24/bin/node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))")"
+  printf '\nCRON_SECRET=%s\n' "$CRON" >> "$ROOT/.env"
+  chmod 600 "$ROOT/.env"
+fi
+if grep -q '^INDEX_POLL_MS=' "$ROOT/.env"; then
+  sed -i 's/^INDEX_POLL_MS=.*/INDEX_POLL_MS=300000/' "$ROOT/.env"
+else
+  printf '\nINDEX_POLL_MS=300000\n' >> "$ROOT/.env"
 fi
 export PATH="$NODE:$PATH"
 cd "$ROOT/app"
@@ -70,6 +83,9 @@ if grep -q '^MAILCONNECT_ADMIN_EMAIL=' "$ROOT/.env"; then
 fi
 if ! crontab -l 2>/dev/null | grep -q '/mailconnect/ensure.sh'; then
   (crontab -l 2>/dev/null; echo '* * * * * /var/www/vhosts/sinthex.de/mailconnect/ensure.sh') | crontab -
+fi
+if ! crontab -l 2>/dev/null | grep -q '/mailconnect/sync.sh'; then
+  (crontab -l 2>/dev/null; echo '* * * * * /var/www/vhosts/sinthex.de/mailconnect/sync.sh') | crontab -
 fi
 # Restart so a new server.cjs is picked up.
 if [[ -f "$ROOT/var/mailconnect.pid" ]]; then

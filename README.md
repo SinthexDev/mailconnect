@@ -59,9 +59,12 @@ Werkzeuge:
 - `get_message` (Text, Button-Links aus dem HTML, Anhänge mit Dateiname und Teil-ID)
 - `get_attachment` (lädt die Datei, zum Beispiel eine PDF-Rechnung)
 - `set_message_flags`, `move_messages`, `copy_messages`, `delete_messages`
-- `append_message`
-- `send_email`
-- `sync_mailbox`
+- `append_message` (RFC822 bis 28 MB)
+- `send_email` (Absendername ist der Anzeigename des Postfachs, optional `fromName` mit höchstens 100 Zeichen; Anhänge als Base64, höchstens 10 Dateien, zusammen 20 MB; danach dieselbe Nachricht im Ordner Gesendet, steuerbar mit `saveToSent`)
+- `sync_mailbox` (stößt den Abgleich an, ohne mailboxId für alle eigenen Postfächer)
+- `list_mailbox_webhooks`, `set_mailbox_webhooks` (Adresse, Methode, Schlüssel und Header; die Liste ersetzt die bisherige)
+- `set_webhook_folders` (pro Webhook die Ordner, die ihn nicht auslösen; leer heißt alle Ordner)
+- `list_mailbox_signatures`, `save_mailbox_signature`, `delete_mailbox_signature` (eine Standard-Signatur und weitere, Typ plain oder html, Titel und Handlungsanweisungen)
 
 Beispiel für Cursor:
 
@@ -84,7 +87,7 @@ Die Anwendung hört auf `127.0.0.1` und einem Port (`PORT`, Standard 3911). Davo
 
 Pflichtvariablen stehen in `.env.example`. `APP_BASE_PATH` muss zum öffentlichen Pfad passen, zum Beispiel `/mailconnect`.
 
-Auf sinthex.de liegt der Node-Prozess außerhalb des Document-Roots. `scripts/deploy.sh` baut das Release, kopiert es nach `mailconnect/app`, legt beim ersten Mal `.env` und den Admin an und lässt `deploy/ensure.sh` per Cron den Prozess neu starten. Öffentlich erreichbar ist nur ein PHP-Weiterleiter unter `/mailconnect/`, weil die vHost-Konfiguration dort nicht beschreibbar ist.
+Auf sinthex.de liegt der Node-Prozess außerhalb des Document-Roots. `scripts/deploy.sh` baut das Release, kopiert es nach `mailconnect/app`, legt beim ersten Mal `.env` und den Admin an und lässt `deploy/ensure.sh` per Cron den Prozess neu starten. `deploy/sync.sh` prüft jede Minute die Postfächer. Ein bereits eingelesenes Konto schaut nur nach neuen Nachrichtennummern. Öffentlich erreichbar ist nur ein PHP-Weiterleiter unter `/mailconnect/`, weil die vHost-Konfiguration dort nicht beschreibbar ist. Am Postfach lassen sich bis zu fünf https-Webhooks hinterlegen, jeweils mit Methode, Schlüssel und Header, in der Oberfläche oder über `set_mailbox_webhooks`. Die feuern, wenn nach dem ersten Einlesen neue Post ankommt.
 
 ## Tests
 

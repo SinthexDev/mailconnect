@@ -18,6 +18,10 @@ export {
   normalizeFlag,
   normalizeFlags,
   rewriteFolderPath,
+  sentFolderPath,
+  resolveSentFolder,
+  shouldSaveToSent,
 } from "./imap-rules.js";
+export { isPublicAddress, webhookFolderIncluded, webhookRequestHeaders } from "./webhooks.js";
 export type * from "./types.js";
 export type * from "./ports.js";

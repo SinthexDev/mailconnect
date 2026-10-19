@@ -37,6 +37,13 @@ const flagShape = {
   flags: z.array(z.string().min(1).max(64)).max(20).describe("\\Seen, \\Flagged, \\Answered, \\Draft, \\Deleted oder ein eigenes Wort"),
 };
 
+const outboundAttachment = z.object({
+  filename: z.string().min(1).max(255),
+  contentType: z.string().max(200).optional(),
+  contentBase64: z.string().min(1).max(28_000_000),
+  contentId: z.string().max(255).optional().describe("optional, für Inline-Bilder per cid:"),
+}).strict();
+
 const sendShape = {
   mailboxId: z.string().uuid(),
   to: z.array(z.string()).min(1).max(50),
@@ -45,6 +52,9 @@ const sendShape = {
   subject: z.string().max(998),
   text: z.string().max(1_000_000),
   html: z.string().max(1_000_000).optional(),
+  fromName: z.string().max(100, "Der Absendername ist länger als 100 Zeichen.").optional().describe("Überschreibt den Anzeigenamen des Postfachs für diese eine Mail"),
+  attachments: z.array(outboundAttachment).max(10).optional().describe("Anhänge als Base64, höchstens 10, zusammen höchstens 20 MB nach dem Dekodieren"),
+  saveToSent: z.boolean().optional().describe("Kopie in Gesendet. Weglassen folgt dem Postfach. false überspringt die Kopie. true erzwingt sie, auch wenn der Server selbst speichert."),
 };
 
 export function mountMcp(router: Router, container: Container): void {
@@ -82,7 +92,7 @@ async function handleMcp(container: Container, user: PublicUser, req: Request, r
 function registerTools(server: McpServer, container: Container, user: PublicUser): void {
   server.tool(
     "list_mailboxes",
-    "Listet die Mailkonten inklusive description und instructions. Die Beschreibung sagt, wofür ein Postfach gedacht ist. Die Handlungsanweisungen sind verbindlich: handle nur innerhalb dieser Regeln.",
+    "Listet die Mailkonten inklusive description und instructions. displayName ist der Absendername beim Versand. lastSyncAt und indexStatus zeigen, ob der Abgleich läuft. Fehlt eine Mail oder ist der Stand alt, rufe sync_mailbox auf. Webhooks für neue Post trägst du mit set_mailbox_webhooks ein. Ordner, die bei einem Webhook still bleiben sollen, trägst du mit set_webhook_folders ein. Signaturen holst du mit list_mailbox_signatures und legst sie mit save_mailbox_signature an. Die Handlungsanweisungen sind verbindlich: handle nur innerhalb dieser Regeln.",
     {},
     async () =>
     json({
@@ -99,6 +109,8 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
         indexedCount: mailbox.indexedCount,
         lastSyncAt: mailbox.lastSyncAt,
         lastError: mailbox.lastError,
+        sentFolder: mailbox.sentFolder,
+        serverStoresSent: mailbox.serverStoresSent,
       })),
     }),
   );
@@ -278,12 +290,12 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
 
   server.tool(
     "append_message",
-    bound("Legt eine neue Nachricht in einen Ordner, zum Beispiel Entwürfe. Entweder raw als RFC822, oder subject und text. flags setzt zum Beispiel \\Draft."),
+    bound("Legt eine neue Nachricht in einen Ordner, zum Beispiel Entwürfe. Entweder raw als RFC822, höchstens 28 MB, oder subject und text. flags setzt zum Beispiel \\Draft. Zum Ersetzen einer Kopie die alte Nachricht mit delete_messages löschen und die vollständige hier ablegen."),
     {
       mailboxId: z.string().uuid(),
       folder: z.string().min(1).max(400),
       flags: z.array(z.string().min(1).max(64)).max(20).optional(),
-      raw: z.string().max(1_000_000).optional().describe("Vollständige RFC822-Nachricht"),
+      raw: z.string().max(28_000_000).optional().describe("Vollständige RFC822-Nachricht, höchstens 28 MB"),
       to: z.array(z.string()).max(50).optional(),
       cc: z.array(z.string()).max(50).optional(),
       subject: z.string().max(998).optional(),
@@ -323,25 +335,105 @@ function registerTools(server: McpServer, container: Container, user: PublicUser
   server.tool(
     "send_email",
     standingOrders
-      ? `Sendet eine E-Mail über das SMTP des gewählten Kontos. Die Handlungsanweisungen sind verbindlich. Wenn sie eine menschliche Zustimmung verlangen, sende nicht.\n\n${standingOrders}`
-      : "Sendet eine E-Mail über das SMTP des gewählten Kontos. Stehen am Postfach Handlungsanweisungen, sind sie verbindlich.",
+      ? `Sendet eine E-Mail über das SMTP des gewählten Kontos. Der Absendername ist der Anzeigename des Postfachs. fromName überschreibt ihn für diese Mail, höchstens 100 Zeichen. Anhänge kommen als Base64, höchstens 10 Dateien und zusammen 20 MB. Vor dem Senden sieh in list_mailbox_signatures nach und hänge die passende Signatur an den Text. Ihre Handlungsanweisungen sind verbindlich. Danach legt MailConnect genau diese Nachricht im Ordner Gesendet ab, mit \\Seen. saveToSent steuert die Kopie. Die Antwort nennt sentFolder, sentUid, savedToSent und bei einem Fehler saveError. Der Versand bleibt gültig, wenn nur das Ablegen scheitert. Die Handlungsanweisungen des Postfachs sind verbindlich. Wenn sie eine menschliche Zustimmung verlangen, sende nicht.\n\n${standingOrders}`
+      : "Sendet eine E-Mail über das SMTP des gewählten Kontos. Der Absendername ist der Anzeigename des Postfachs. fromName überschreibt ihn für diese Mail, höchstens 100 Zeichen. Stehen am Postfach Handlungsanweisungen, sind sie verbindlich. Vor dem Senden sieh in list_mailbox_signatures nach und hänge die passende Signatur an den Text. Ihre Handlungsanweisungen sind verbindlich. Anhänge kommen als Base64, höchstens 10 Dateien und zusammen 20 MB. Danach legt MailConnect genau diese Nachricht im Ordner Gesendet ab, mit \\Seen. saveToSent steuert die Kopie. Die Antwort nennt sentFolder, sentUid, savedToSent und bei einem Fehler saveError. Der Versand bleibt gültig, wenn nur das Ablegen scheitert.",
     sendShape,
-    async (input) => {
-      await container.mail.send(user, input);
-      return json({ ok: true });
-    },
+    async (input) => json(await container.mail.send(user, input)),
   );
 
-  server.tool("sync_mailbox", "Stößt die Index-Synchronisation eines IMAP-Kontos an.", { mailboxId: z.string().uuid() }, async ({ mailboxId }) => {
-    const mailbox = container.sync.enqueue(user, mailboxId);
-    if (mailbox.imap) container.indexer.nudge(mailbox.id);
-    return json({
-      id: mailbox.id,
-      indexStatus: mailbox.indexStatus,
-      indexedCount: mailbox.indexedCount,
-      lastSyncAt: mailbox.lastSyncAt,
-    });
-  });
+  server.tool(
+    "list_mailbox_webhooks",
+    "Zeigt die Webhooks eines Postfachs: Adresse, Methode, Header und excludedFolders. Den Schlüssel selbst liefert die Antwort nicht. excludedFolders gilt pro Webhook: diese Ordner lösen ihn nicht aus. Eine leere Liste bedeutet: jeder Ordner löst aus. mailboxId kommt aus list_mailboxes.",
+    { mailboxId: z.string().uuid() },
+    async ({ mailboxId }) => json(webhookView(container.mailboxes.getOwned(user, mailboxId))),
+  );
+
+  server.tool(
+    "set_mailbox_webhooks",
+    "Trägt die Webhooks eines Postfachs ein. Die Liste ersetzt die bisherige vollständig; Einträge, die fehlen, fallen weg. Eine leere Liste entfernt alle. Höchstens 5. Jede Adresse ist öffentlich und beginnt mit https://. method ist POST, PUT oder PATCH, Standard POST. secret wird als Authorization: Bearer geschickt, sofern header kein Authorization setzt. header ist genau eine Zeile Name: Wert. excludedFolders gilt nur für diesen Webhook; weglassen behält seine bisherige Ordnerliste. mailboxId kommt aus list_mailboxes. Rufe das Werkzeug auf, wenn der Nutzer einen Webhook hinterlegen oder ändern will.",
+    {
+      mailboxId: z.string().uuid(),
+      webhooks: z.array(z.object({
+        url: z.string().max(500).describe("Öffentliche https-Adresse"),
+        method: z.enum(["POST", "PUT", "PATCH"]).optional().describe("Standard ist POST"),
+        secret: z.string().max(500).optional().describe("Schlüssel. Wird als Authorization: Bearer geschickt, wenn header kein Authorization setzt"),
+        header: z.string().max(500).optional().describe("Eine Zeile Name: Wert, zum Beispiel Authorization: Bearer …"),
+        excludedFolders: z.array(z.string().max(400)).max(200).optional().describe("IMAP-Pfade, die diesen Webhook nicht auslösen. Weglassen behält die bisherige Liste."),
+      }).strict()).max(5),
+    },
+    async ({ mailboxId, webhooks }) => json(webhookView(container.mailboxes.setWebhooks(user, mailboxId, webhooks))),
+  );
+
+  server.tool(
+    "set_webhook_folders",
+    "Legt für einen einzelnen Webhook fest, welche Ordner ihn nicht auslösen. Standard ist eine leere Liste: neue Post in jedem Ordner wird gemeldet. url ist die Adresse aus list_mailbox_webhooks. excludedFolders ersetzt die Liste dieses Webhooks. Ein leeres Array schaltet alle Ordner wieder ein. Der Name ist der IMAP-Pfad aus list_folders, zum Beispiel INBOX oder INBOX.Spam. Ein Unterordner bleibt aktiv, bis er selbst in der Liste steht.",
+    {
+      mailboxId: z.string().uuid(),
+      url: z.string().max(500).describe("Adresse des Webhooks aus list_mailbox_webhooks"),
+      excludedFolders: z.array(z.string().max(400)).max(200).describe("IMAP-Pfade, die diesen Webhook nicht auslösen. Leer heißt: alle Ordner lösen aus."),
+    },
+    async ({ mailboxId, url, excludedFolders }) => json(webhookView(container.mailboxes.setWebhookFolders(user, mailboxId, url, excludedFolders))),
+  );
+
+  server.tool(
+    "list_mailbox_signatures",
+    "Listet die Signaturen eines Postfachs. Genau eine ist die Standard-Signatur, isDefault ist true. kind ist plain oder html. instructions sind Handlungsanweisungen und verbindlich. body ist der Text, den du an die Mail hängst. previewPath öffnet die gerenderte Signatur in MailConnect. mailboxId kommt aus list_mailboxes.",
+    { mailboxId: z.string().uuid() },
+    async ({ mailboxId }) => json(signatureView(container.mailboxes.getOwned(user, mailboxId))),
+  );
+
+  server.tool(
+    "save_mailbox_signature",
+    "Legt eine Signatur an oder ändert sie. Ohne id entsteht ein neuer Eintrag. Mit id wird genau diese Signatur ersetzt. kind ist plain oder html. title ist der Name. instructions sind Handlungsanweisungen für Agents und verbindlich. body ist der Signaturtext, bei html das Markup. isDefault true macht sie zur Standard-Signatur und nimmt einer anderen diesen Status. Die erste Signatur wird immer die Standard-Signatur. Höchstens 50 pro Postfach. mailboxId kommt aus list_mailboxes.",
+    {
+      mailboxId: z.string().uuid(),
+      id: z.string().uuid().optional().describe("Vorhandene Signatur. Weglassen legt eine neue an."),
+      title: z.string().min(1).max(120),
+      kind: z.enum(["plain", "html"]),
+      body: z.string().max(200_000),
+      instructions: z.string().max(2000),
+      isDefault: z.boolean().optional().describe("true macht diese Signatur zur Standard-Signatur."),
+    },
+    async ({ mailboxId, id, title, kind, body, instructions, isDefault }) =>
+      json(signatureView(container.mailboxes.saveSignature(user, mailboxId, { id, title, kind, body, instructions, isDefault }))),
+  );
+
+  server.tool(
+    "delete_mailbox_signature",
+    "Löscht eine Signatur. signatureId kommt aus list_mailbox_signatures. War sie die Standard-Signatur, wird die nächste verbliebene zur Standard-Signatur.",
+    { mailboxId: z.string().uuid(), signatureId: z.string().uuid() },
+    async ({ mailboxId, signatureId }) => json(signatureView(container.mailboxes.deleteSignature(user, mailboxId, signatureId))),
+  );
+
+  server.tool(
+    "sync_mailbox",
+    "Stößt den IMAP-Abgleich an, wenn er nicht von allein gelaufen ist oder eine erwartete Mail in der Suche fehlt. Der automatische Abgleich läuft etwa alle zwei Minuten. Ohne mailboxId werden alle eigenen Postfächer angestoßen, außer gestoppte und reine Versandkonten. Mit mailboxId startet auch ein gestopptes Postfach wieder. Der Abgleich läuft danach im Hintergrund weiter. Suche anschließend erneut.",
+    { mailboxId: z.string().uuid().optional().describe("Ein Konto. Weglassen stößt alle eigenen Postfächer an, die nicht gestoppt sind.") },
+    async ({ mailboxId }) => {
+      const requested = container.sync.request(user, mailboxId);
+      for (const item of requested) {
+        if (item.started) container.indexer.nudge(item.mailbox.id);
+      }
+      return json({
+        mailboxes: requested.map((item) => {
+          const progress = container.sync.progress(item.mailbox.id);
+          return {
+            id: item.mailbox.id,
+            displayName: item.mailbox.displayName,
+            email: item.mailbox.email,
+            indexStatus: item.mailbox.indexStatus,
+            indexedCount: item.mailbox.indexedCount,
+            messageTotal: progress.messageTotal,
+            folderTotal: progress.folderTotal,
+            folderDone: progress.folderDone,
+            lastSyncAt: item.mailbox.lastSyncAt,
+            lastError: item.mailbox.lastError,
+            started: item.started,
+          };
+        }),
+      });
+    },
+  );
 }
 
 function bearerToken(req: Request): string | null {
@@ -359,6 +451,31 @@ function firstHeader(value: string | string[] | undefined): string | null {
   const header = Array.isArray(value) ? value[0] : value;
   const token = header?.trim();
   return token ? token : null;
+}
+
+function webhookView(mailbox: { id: string; displayName: string; email: string; webhooks: { url: string; method: string; secret: string; header: string; excludedFolders?: string[] }[] }) {
+  return {
+    mailboxId: mailbox.id,
+    displayName: mailbox.displayName,
+    email: mailbox.email,
+    webhooks: mailbox.webhooks.map((hook) => ({
+      url: hook.url,
+      method: hook.method,
+      secretSet: hook.secret.length > 0,
+      header: hook.header,
+      excludedFolders: hook.excludedFolders ?? [],
+    })),
+  };
+}
+
+function signatureView(mailbox: { id: string; signatures: { id: string; title: string; kind: string; body: string; instructions: string; isDefault: boolean }[] }) {
+  return {
+    mailboxId: mailbox.id,
+    signatures: mailbox.signatures.map((signature) => ({
+      ...signature,
+      previewPath: `/mailconnect/mailboxes/${mailbox.id}/signaturen/${signature.id}`,
+    })),
+  };
 }
 
 function json(value: unknown) {

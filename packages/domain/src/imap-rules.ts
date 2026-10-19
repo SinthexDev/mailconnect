@@ -98,6 +98,48 @@ export function assertNotInbox(folder: string, action: "löschen" | "umbenennen"
   if (folder.toUpperCase() === "INBOX") throw new AppError("imap_inbox", `INBOX lässt sich nicht ${action}.`, 400);
 }
 
+const SENT_NAMES = new Set([
+  "sent",
+  "sent items",
+  "sent messages",
+  "gesendet",
+  "gesendete",
+  "gesendete elemente",
+  "gesendete objekte",
+]);
+
+export function sentFolderPath(folders: readonly { path: string; specialUse?: string | null; flags?: readonly string[]; selectable?: boolean }[]): string | null {
+  const open = folders.filter((folder) => folder.selectable !== false && folder.path.trim());
+  const marked = open.find((folder) => isSentMark(folder.specialUse) || folder.flags?.some((flag) => isSentMark(flag)));
+  if (marked) return marked.path;
+  return open.find((folder) => SENT_NAMES.has(folderLeaf(folder.path)))?.path ?? null;
+}
+
+export function resolveSentFolder(
+  folders: readonly { path: string; specialUse?: string | null; flags?: readonly string[]; selectable?: boolean }[],
+  override: string,
+): string | null {
+  const named = override.trim();
+  if (named) return named;
+  return sentFolderPath(folders);
+}
+
+export function shouldSaveToSent(explicit: boolean | undefined, serverStoresSent: boolean): boolean {
+  if (explicit === false) return false;
+  if (explicit === true) return true;
+  return !serverStoresSent;
+}
+
+function isSentMark(value: string | null | undefined): boolean {
+  return value?.toLowerCase() === "\\sent";
+}
+
+function folderLeaf(path: string): string {
+  const parts = path.split(/[\\/]/);
+  const dotted = (parts[parts.length - 1] ?? path).split(".");
+  return (dotted[dotted.length - 1] ?? path).trim().toLowerCase();
+}
+
 export function buildPlainMessage(input: { from: string; to: string[]; cc: string[]; subject: string; text: string; date: Date }): string {
   const lines = [
     `From: ${headerValue(input.from)}`,

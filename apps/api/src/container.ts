@@ -3,6 +3,7 @@ import {
   AesGcmVault,
   SqliteDatabase,
   createSecretHasher,
+  deliverWebhooks,
   imapAdapter,
   loadProviders,
   passwordHasher,
@@ -32,7 +33,7 @@ export function createContainer(config: AppConfig): Container {
   const vault = new AesGcmVault(config.masterKey);
   const auth = new AuthService(db.users, db.invites, db.sessions, passwordHasher, secrets, ids, clock);
   const tokens = new TokenService(db.tokens, db.users, secrets, ids, clock);
-  const sync = new SyncService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, clock, config.syncBatch);
+  const sync = new SyncService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, clock, config.syncBatch, { notify: deliverWebhooks });
   const mail = new MailService(db.mailboxes, db.credentials, db.messages, vault, imapAdapter, smtpAdapter, clock);
   const nudge: { current: (id: string) => void } = { current: () => undefined };
   const mailboxes = new MailboxService(
