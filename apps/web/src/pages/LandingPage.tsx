@@ -3,8 +3,8 @@ import { useAuth } from '../auth';
 import { LanguageSwitcher, useI18n } from '../LanguageSwitcher';
 
 const art = (file: string) => `${import.meta.env.BASE_URL}art/${file}`;
-const repo = 'https://github.com/beeXperts-Niko/mailconnect';
-const zip = 'https://github.com/beeXperts-Niko/mailconnect/archive/refs/heads/main.zip';
+const repo = 'https://github.com/SinthexDev/mailconnect';
+const zip = 'https://github.com/SinthexDev/mailconnect/archive/refs/heads/main.zip';
 
 export function SiteFooter() {
   const { m } = useI18n();
