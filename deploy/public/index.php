@@ -2,16 +2,20 @@
 declare(strict_types=1);
 
 /**
- * Forwards sinthex.de/mailconnect to the local Node process.
- * The application and its secrets stay outside the document root.
+ * Forwards /mailconnect on this host to the local Node process.
+ * Use this only where the vhost configuration is not writable; otherwise
+ * prefer the reverse-proxy examples in deploy/. The application and its
+ * secrets stay outside the document root.
  */
+const MAILCONNECT_UPSTREAM = 'http://127.0.0.1:3911';
+
 set_time_limit(180);
 while (ob_get_level() > 0) {
     ob_end_clean();
 }
 
 $uri = $_SERVER['REQUEST_URI'] ?? '/mailconnect/';
-$url = 'http://127.0.0.1:3911' . $uri;
+$url = MAILCONNECT_UPSTREAM . $uri;
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 $ch = curl_init($url);
@@ -44,7 +48,7 @@ if (!$hasAuth && $authorization !== '') {
     $headers[] = 'Authorization: ' . $authorization;
 }
 $headers[] = 'X-Forwarded-Proto: https';
-$headers[] = 'X-Forwarded-Host: ' . ($_SERVER['HTTP_HOST'] ?? 'sinthex.de');
+$headers[] = 'X-Forwarded-Host: ' . ($_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? 'localhost');
 
 curl_setopt_array($ch, [
     CURLOPT_CUSTOMREQUEST => $method,

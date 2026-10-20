@@ -1,4 +1,4 @@
-# Plesk "Additional nginx directives" for sinthex.de, if nginx terminates TLS.
+# nginx location block for the vhost that serves MailConnect, if nginx terminates TLS.
 
 location /mailconnect/ {
     proxy_pass http://127.0.0.1:3911/mailconnect/;

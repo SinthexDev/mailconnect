@@ -1,4 +1,4 @@
-# Additional Apache directives for the sinthex.de vhost.
+# Additional Apache directives for the vhost that serves MailConnect.
 # MailConnect itself listens on 127.0.0.1:3911 and is not placed in the document root.
 
 ProxyPreserveHost On

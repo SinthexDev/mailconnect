@@ -42,7 +42,7 @@ Die Anbieterliste in `data/providers/de-eu.json` füllt Host und Port für verbr
 
 ## MCP
 
-Endpunkt: `https://sinthex.de/mailconnect/mcp` (lokal entsprechend `APP_BASE_URL` + `/mcp`).
+Endpunkt: `APP_BASE_URL` + `/mcp`, zum Beispiel `https://example.com/mailconnect/mcp`.
 
 Authentifizierung: `Authorization: Bearer <token>`. Den Token legst du in der Oberfläche unter „Agent-Tokens“ an.
 
@@ -72,7 +72,7 @@ Beispiel für Cursor:
 {
   "mcpServers": {
     "mailconnect": {
-      "url": "https://sinthex.de/mailconnect/mcp",
+      "url": "https://example.com/mailconnect/mcp",
       "headers": {
         "Authorization": "Bearer DEIN_TOKEN"
       }
@@ -87,7 +87,7 @@ Die Anwendung hört auf `127.0.0.1` und einem Port (`PORT`, Standard 3911). Davo
 
 Pflichtvariablen stehen in `.env.example`. `APP_BASE_PATH` muss zum öffentlichen Pfad passen, zum Beispiel `/mailconnect`.
 
-Auf sinthex.de liegt der Node-Prozess außerhalb des Document-Roots. `scripts/deploy.sh` baut das Release, kopiert es nach `mailconnect/app`, legt beim ersten Mal `.env` und den Admin an und lässt `deploy/ensure.sh` per Cron den Prozess neu starten. `deploy/sync.sh` prüft jede Minute die Postfächer. Ein bereits eingelesenes Konto schaut nur nach neuen Nachrichtennummern. Öffentlich erreichbar ist nur ein PHP-Weiterleiter unter `/mailconnect/`, weil die vHost-Konfiguration dort nicht beschreibbar ist. Am Postfach lassen sich bis zu fünf https-Webhooks hinterlegen, jeweils mit Methode, Schlüssel und Header, in der Oberfläche oder über `set_mailbox_webhooks`. Die feuern, wenn nach dem ersten Einlesen neue Post ankommt.
+Für ein Deployment per SSH kopierst du `deploy/deploy.env.example` nach `deploy/deploy.env` und trägst Host, Zielverzeichnis, Node-Pfad und öffentliche Adresse ein. Die Datei bleibt lokal und wird nicht committet. `scripts/deploy.sh` baut dann das Release, kopiert es in `<Zielverzeichnis>/app`, legt beim ersten Mal `.env` und den Admin an und lässt `deploy/ensure.sh` per Cron den Prozess neu starten. `deploy/sync.sh` prüft jede Minute die Postfächer. Ein bereits eingelesenes Konto schaut nur nach neuen Nachrichtennummern. Der Node-Prozess liegt außerhalb des Document-Roots. Lässt sich die vHost-Konfiguration nicht ändern, übernimmt der PHP-Weiterleiter in `deploy/public` die Weitergabe an den lokalen Port; dafür trägst du `DEPLOY_PUBLIC_ROOT` ein. Am Postfach lassen sich bis zu fünf https-Webhooks hinterlegen, jeweils mit Methode, Schlüssel und Header, in der Oberfläche oder über `set_mailbox_webhooks`. Die feuern, wenn nach dem ersten Einlesen neue Post ankommt.
 
 ## Tests
 
