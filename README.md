@@ -40,6 +40,10 @@ Nach dem Speichern eines IMAP-Kontos liest ein Worker Ordner und neue UIDs ein. 
 
 Die Anbieterliste in `data/providers/de-eu.json` füllt Host und Port für verbreitete Dienste in Deutschland und Europa vor. Zugangsdaten trägst du selbst ein. Gmail, Microsoft, Yahoo und iCloud brauchen in der Regel ein App-Passwort. Proton Mail Bridge funktioniert nur auf demselben Rechner wie MailConnect.
 
+## Audit und Monitoring
+
+Jede Agent-Aktion landet im Audit-Protokoll (Oberfläche: „Audit“). Ein Token darf von mehreren Agents genutzt werden, jeder meldet sich bei jedem Aufruf mit Namen: Parameter `agent` an jedem Werkzeug oder Header `X-Agent-Name` (optional `X-Agent-Run-Id`). Ohne Namen wird der Aufruf abgelehnt (`MAILCONNECT_REQUIRE_AGENT_NAME=0` schaltet das ab). Protokolliert werden Token, Agent, Werkzeug, Postfach, betroffene Mails, Eingabe, Rückgabe, Dauer, Ergebnis, gesendete Mails (Empfänger, Betreff, Text, Anhangsnamen) und Webhook-Zustellungen. Geheimnisse und Anhangsinhalte werden nicht gespeichert. Die Einträge sind hash-verkettet (`/api/audit/verify`), Export als JSON oder CSV über `/api/audit/export`. Das Protokoll liegt in der verschlüsselten Datenbank.
+
 ## MCP
 
 Endpunkt: `APP_BASE_URL` + `/mcp`, zum Beispiel `https://example.com/mailconnect/mcp`.
@@ -60,7 +64,7 @@ Werkzeuge:
 - `get_attachment` (lädt die Datei, zum Beispiel eine PDF-Rechnung)
 - `set_message_flags`, `move_messages`, `copy_messages`, `delete_messages`
 - `append_message` (RFC822 bis 28 MB)
-- `send_email` (Absendername ist der Anzeigename des Postfachs, optional `fromName` mit höchstens 100 Zeichen; Anhänge als Base64, höchstens 10 Dateien, zusammen 20 MB; danach dieselbe Nachricht im Ordner Gesendet, steuerbar mit `saveToSent`)
+- `send_email` (Absendername ist der Anzeigename des Postfachs, optional `fromName` mit höchstens 100 Zeichen; Anhänge als Base64, höchstens 10 Dateien, zusammen 20 MB; danach dieselbe Nachricht im Ordner Gesendet, steuerbar mit `saveToSent`; optional `priority` `high`/`normal`/`low` für den Empfänger; optional `flags` wie `\\Flagged` nur für die Gesendet-Kopie)
 - `sync_mailbox` (stößt den Abgleich an, ohne mailboxId für alle eigenen Postfächer)
 - `list_mailbox_webhooks`, `set_mailbox_webhooks` (Adresse, Methode, Schlüssel und Header; die Liste ersetzt die bisherige)
 - `set_webhook_folders` (pro Webhook die Ordner, die ihn nicht auslösen; leer heißt alle Ordner)

@@ -1,16 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyFlagMode, buildPlainMessage, filterDirectChildren, inferDelimiter, normalizeFlag, resolveSentFolder, rewriteFolderPath, sentFolderPath, shouldSaveToSent } from "./imap-rules.js";
+import { applyFlagMode, buildPlainMessage, filterDirectChildren, inferDelimiter, normalizeFlag, resolveSentFolder, rewriteFolderPath, sentCopyFlags, sentFolderPath, shouldSaveToSent } from "./imap-rules.js";
 
 test("flags accept system names and custom keywords", () => {
   assert.equal(normalizeFlag("seen"), "\\Seen");
   assert.equal(normalizeFlag("\\flagged"), "\\Flagged");
+  assert.equal(normalizeFlag("prio"), "\\Flagged");
   assert.equal(normalizeFlag("Rechnung"), "Rechnung");
   assert.deepEqual(applyFlagMode(["\\Seen"], "add", ["\\Flagged"]), ["\\Seen", "\\Flagged"]);
   assert.deepEqual(applyFlagMode(["\\Seen", "\\Flagged"], "remove", ["\\Seen"]), ["\\Flagged"]);
   assert.deepEqual(applyFlagMode(["\\Seen"], "set", ["\\Answered"]), ["\\Answered"]);
   assert.throws(() => normalizeFlag("\\Recent"));
   assert.throws(() => normalizeFlag("leer zeichen"));
+});
+
+test("sent copies keep Seen and accept Flagged, not Draft", () => {
+  assert.deepEqual(sentCopyFlags(), ["\\Seen"]);
+  assert.deepEqual(sentCopyFlags(["\\Flagged"]), ["\\Seen", "\\Flagged"]);
+  assert.deepEqual(sentCopyFlags(["prio", "\\Seen"]), ["\\Seen", "\\Flagged"]);
+  assert.throws(() => sentCopyFlags(["\\Draft"]));
+  assert.throws(() => sentCopyFlags(["\\Deleted"]));
 });
 
 test("the sent folder is the special-use folder, otherwise a known name", () => {

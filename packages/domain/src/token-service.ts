@@ -48,4 +48,16 @@ export class TokenService {
     const user = this.users.findById(userId);
     return user ? toPublicUser(user) : null;
   }
+
+  /** Wie authenticate, liefert aber zusätzlich den Token, damit Aktionen ihm zugeordnet werden können. */
+  authenticateToken(bearer: string | undefined): { user: PublicUser; token: { id: string; name: string } } | null {
+    if (!bearer) return null;
+    const tokenHash = this.secrets.hash("api", bearer);
+    const found = this.tokens.findByHash(tokenHash);
+    if (!found) return null;
+    const user = this.users.findById(found.userId);
+    if (!user) return null;
+    this.tokens.touch(tokenHash, this.clock.now());
+    return { user: toPublicUser(user), token: { id: found.id, name: found.name } };
+  }
 }

@@ -1,7 +1,7 @@
 import { formatDate, localizeError } from './i18n';
 
 export type Role = string;
-export interface User { id: string; email: string; role: Role }
+export interface User { id: string; email: string; username: string | null; role: Role }
 export interface Channel { host: string; port: number; secure: boolean; username: string }
 export interface ChannelInput extends Channel { password?: string }
 export type IndexStatus = 'idle' | 'syncing' | 'paused' | 'error' | 'disabled';
@@ -80,4 +80,23 @@ export function errMsg(e: unknown): string {
 
 export function fmtDate(iso: string | null | undefined): string {
   return formatDate(iso);
+}
+
+export type AuditCategory = 'read' | 'write' | 'delete' | 'send' | 'sync' | 'admin' | 'auth' | 'session' | 'flow';
+export type AuditStatus = 'ok' | 'error' | 'denied';
+export type AuditSource = 'mcp' | 'web' | 'system';
+export interface AuditEvent {
+  seq: number; id: string; ts: string; userId: string | null;
+  source: AuditSource; category: AuditCategory; action: string; status: AuditStatus; durationMs: number | null;
+  tokenId: string | null; tokenName: string | null; agentName: string | null; runId: string | null;
+  mailboxId: string | null; mailboxEmail: string | null;
+  resource: Record<string, unknown>; input: unknown; output: unknown; error: string | null;
+  ip: string | null; userAgent: string | null; prevHash: string; hash: string;
+}
+export interface AuditAgent {
+  tokenId: string | null; tokenName: string | null; agentName: string | null;
+  calls: number; errors: number; sends: number; deletes: number; tools: string[]; firstSeen: string; lastSeen: string;
+}
+export interface AuditFilter {
+  agent: string; tokenId: string; action: string; category: string; status: string; source: string; mailboxId: string; since: string; until: string; q: string;
 }

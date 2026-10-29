@@ -7,6 +7,10 @@ const SYSTEM_FLAGS: Record<string, string> = {
   flagged: "\\Flagged",
   deleted: "\\Deleted",
   draft: "\\Draft",
+  prio: "\\Flagged",
+  priority: "\\Flagged",
+  important: "\\Flagged",
+  starred: "\\Flagged",
 };
 
 export function normalizeFlag(flag: string): string {
@@ -128,6 +132,16 @@ export function shouldSaveToSent(explicit: boolean | undefined, serverStoresSent
   if (explicit === false) return false;
   if (explicit === true) return true;
   return !serverStoresSent;
+}
+
+/** Flags for the Sent copy: always \\Seen, plus extras. Draft and Deleted do not belong on sent mail. */
+export function sentCopyFlags(extra?: string[]): string[] {
+  const flags = normalizeFlags(extra ?? []);
+  for (const flag of flags) {
+    if (flag === "\\Draft") throw new AppError("bad_flag", "\\Draft gehört nicht an eine versendete Mail.", 400);
+    if (flag === "\\Deleted") throw new AppError("bad_flag", "\\Deleted gehört nicht an eine versendete Mail.", 400);
+  }
+  return normalizeFlags(["\\Seen", ...flags]);
 }
 
 function isSentMark(value: string | null | undefined): boolean {

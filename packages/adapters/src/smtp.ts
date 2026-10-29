@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import type { OutboundMail, SmtpPort, SmtpSettings } from "@mailconnect/domain";
+import { mailPriorityHeaders, type OutboundMail, type SmtpPort, type SmtpSettings } from "@mailconnect/domain";
 import { connectionError } from "./mail-error.js";
 
 function transport(settings: SmtpSettings, socketTimeout = 30_000) {
@@ -31,6 +31,7 @@ export const smtpAdapter: SmtpPort = {
   async send(settings, message: OutboundMail) {
     const client = transport(settings, 120_000);
     const recipients = [...message.to, ...message.cc, ...message.bcc];
+    const headers = mailPriorityHeaders(message.priority);
     const options = {
       from: message.from.name
         ? { name: message.from.name, address: message.from.address }
@@ -40,6 +41,7 @@ export const smtpAdapter: SmtpPort = {
       subject: message.subject,
       text: message.text,
       html: message.html,
+      headers,
       attachments: message.attachments?.map((item) => ({
         filename: item.filename,
         content: Buffer.from(item.content),

@@ -2,7 +2,8 @@ declare module "better-sqlite3-multiple-ciphers" {
   namespace Database {
     interface Statement {
       get(...params: unknown[]): unknown;
-      run(...params: unknown[]): { changes: number };
+      run(...params: unknown[]): { changes: number; lastInsertRowid: number | bigint };
+      iterate(...params: unknown[]): IterableIterator<unknown>;
       all(...params: unknown[]): unknown[];
     }
 
@@ -10,7 +11,7 @@ declare module "better-sqlite3-multiple-ciphers" {
       prepare(source: string): Statement;
       exec(source: string): this;
       pragma(source: string): unknown;
-      transaction<T extends () => unknown>(fn: T): T;
+      transaction<T extends (...args: never[]) => unknown>(fn: T): T;
       close(): void;
       key(key: Buffer): number;
       rekey(key: Buffer): number;

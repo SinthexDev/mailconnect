@@ -29,7 +29,16 @@ test("auth, invite and full text index", async () => {
 
   const session = await auth.login("admin@example.com", "correct-horse-battery");
   assert.equal(auth.userFromSession(session.token)?.email, "admin@example.com");
+  assert.equal(session.user.username, null);
   await assert.rejects(() => auth.login("admin@example.com", "wrong-password-value"));
+
+  const withName = auth.updateUsername(admin.id, "AdminOne");
+  assert.equal(withName.username, "AdminOne");
+  const byName = await auth.login("adminone", "correct-horse-battery");
+  assert.equal(byName.user.email, "admin@example.com");
+  assert.equal(byName.user.username, "AdminOne");
+  auth.updateUsername(admin.id, "");
+  await assert.rejects(() => auth.login("AdminOne", "correct-horse-battery"));
 
   const invite = auth.createInvite(admin, null, 24);
   const accepted = await auth.acceptInvite(invite.token, "ada@example.com", "another-strong-password");

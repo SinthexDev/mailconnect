@@ -1,5 +1,55 @@
 # MailConnect – Changes
 
+## Version 1.2.0 - 29 October 2026
+### Audit and monitoring for agents
+
+It was not traceable which agent did what. Several agents behind one token (for example Grok Bot) could not be told apart.
+
+#### New features
+
+- **Audit log**: Every MCP call is recorded with time, token, agent, tool, mailbox, affected mails, input, returned data (data flow), duration and result. Sent mails are logged with recipients, subject, text, attachment names and message ID. Passwords, webhook secrets and attachment contents are never stored.
+- **Agent name required**: Every tool has an `agent` parameter. Alternatively the agent identifies itself with the `X-Agent-Name` header. Without a name the call is rejected and logged as denied (can be disabled with `MAILCONNECT_REQUIRE_AGENT_NAME=0`). `X-Agent-Run-Id` optionally groups a run.
+- **Several agents per token**: The Agents view shows calls, errors, mails sent, deletions and tools used per token and agent.
+- **More sources**: Sign-in, tokens, mailboxes, reading and sending in the UI, failed token authentication, MCP handshakes and webhook deliveries with the reported mails.
+- **UI and API**: New Audit page with filters (agent, token, type, status, mailbox, period, full text), detail view, JSON or CSV export (`/api/audit`, `/api/audit/agents`, `/api/audit/export`).
+- **Tamper protection**: Entries are hash-chained. Administrators verify the chain with “Verify integrity” (`/api/audit/verify`).
+
+---
+
+## Version 1.1.46 - 28 October 2026
+### Sign in with a username
+
+Sign-in only accepted the email address. A short login name was missing.
+
+#### New features
+
+- **Account**: Under Account you can set a username (3–32 characters). Sign-in accepts the email or that name. Saving it empty clears it.
+
+---
+
+## Version 1.1.45 - 27 October 2026
+### Priority for the recipient
+
+`flags` only marked the Sent copy. Recipients never saw high priority.
+
+#### New features
+
+- **Sending**: `priority` with `high`, `normal` or `low` sets `X-Priority`, `X-MSMail-Priority` and `Importance` on the outbound mail. `high` is urgency for the recipient; `flags` remains the IMAP mark on Sent only.
+
+---
+
+## Version 1.1.44 - 27 October 2026
+### Flags when sending
+
+The Sent copy only got `\\Seen`. A priority flag (`\\Flagged`) could not be set at send time.
+
+#### Improvements
+
+- **Sending**: `send_email` and the API accept optional `flags`, for example `\\Flagged` or `prio`. The Sent copy always has `\\Seen` plus those marks. When `flags` are set, the copy is stored even if the server keeps Sent itself. `\\Draft` and `\\Deleted` are not allowed when sending.
+- **Flags**: The aliases `prio`, `priority`, `important` and `starred` map to `\\Flagged`. After sending, `set_message_flags` still works.
+
+---
+
 ## Version 1.1.43 - 20 October 2026
 ### The signature preview sits on the right
 

@@ -64,6 +64,7 @@ export type Messages = {
   authLead: string;
   loginTitle: string;
   loginLead: string;
+  loginOrEmail: string;
   email: string;
   password: string;
   signingIn: string;
@@ -166,6 +167,12 @@ export type Messages = {
   inviteMeta: (created: string, until: string) => string;
   accountTitle: string;
   signedInAs: (email: string) => string;
+  signedInAsUsername: (username: string, email: string) => string;
+  loginUsername: string;
+  loginUsernameHint: string;
+  loginUsernamePlaceholder: string;
+  saveUsername: string;
+  usernameSaved: string;
   changePassword: string;
   currentPassword: string;
   newPassword: string;
@@ -245,6 +252,54 @@ export type Messages = {
   needChannel: string;
   removeConfirm: string;
   never: string;
+  auditNav: string;
+  auditTitle: string;
+  auditLead: string;
+  auditTabEvents: string;
+  auditTabAgents: string;
+  auditAgent: string;
+  auditToken: string;
+  auditAction: string;
+  auditCategory: string;
+  auditStatus: string;
+  auditSource: string;
+  auditMailbox: string;
+  auditSearch: string;
+  auditSince: string;
+  auditUntil: string;
+  auditAll: string;
+  auditApply: string;
+  auditReset: string;
+  auditExportJson: string;
+  auditExportCsv: string;
+  auditVerify: string;
+  auditNone: string;
+  auditLoadMore: string;
+  auditColTime: string;
+  auditDetails: string;
+  auditResource: string;
+  auditInput: string;
+  auditOutput: string;
+  auditError: string;
+  auditChain: string;
+  auditNoName: string;
+  auditCalls: string;
+  auditErrors: string;
+  auditSends: string;
+  auditDeletes: string;
+  auditTools: string;
+  auditFirst: string;
+  auditLast: string;
+  auditShowEvents: string;
+  auditAgentsLead: string;
+  auditNoAgents: string;
+  auditVerifying: string;
+  auditCount: (shown: number, total: number) => string;
+  auditVerifyOk: (checked: number) => string;
+  auditVerifyBroken: (seq: number) => string;
+  auditCategories: Record<string, string>;
+  auditStatuses: Record<string, string>;
+  auditSources: Record<string, string>;
 };
 
 export const de: Messages = {
@@ -312,7 +367,8 @@ export const de: Messages = {
   privacyRights: 'Du kannst Auskunft, Berichtigung und Löschung verlangen, die Verarbeitung einschränken lassen und dich bei einer Aufsichtsbehörde beschweren. Zuständig ist der Landesbeauftragte für den Datenschutz und die Informationsfreiheit Rheinland-Pfalz. Schreiben an hi@sinthex.de reicht.',
   authLead: 'Verbinde deine IMAP- und SMTP-Postfächer, baue einen durchsuchbaren Index auf und gib Agenten gezielten Zugriff über MCP.',
   loginTitle: 'Anmelden',
-  loginLead: 'Melde dich mit deinem MailConnect-Konto an.',
+  loginLead: 'Melde dich mit E-Mail oder Benutzername an.',
+  loginOrEmail: 'E-Mail oder Benutzername',
   email: 'E-Mail',
   password: 'Passwort',
   signingIn: 'Anmelden …',
@@ -416,6 +472,12 @@ export const de: Messages = {
   inviteMeta: (created, until) => `Erstellt ${created} · gültig bis ${until}`,
   accountTitle: 'Konto',
   signedInAs: (email) => `Angemeldet als ${email}.`,
+  signedInAsUsername: (username, email) => `Angemeldet als ${username} (${email}).`,
+  loginUsername: 'Benutzername',
+  loginUsernameHint: 'Optional. Damit kannst du dich statt mit der E-Mail anmelden. 3–32 Zeichen, Buchstaben, Ziffern, Punkt, Bindestrich oder Unterstrich.',
+  loginUsernamePlaceholder: 'zum Beispiel niko',
+  saveUsername: 'Benutzername speichern',
+  usernameSaved: 'Benutzername gespeichert.',
   changePassword: 'Passwort ändern',
   currentPassword: 'Aktuelles Passwort',
   newPassword: 'Neues Passwort (mind. 12 Zeichen)',
@@ -495,6 +557,54 @@ export const de: Messages = {
   needChannel: 'Aktiviere mindestens IMAP oder SMTP.',
   removeConfirm: 'Postfach und zugehörigen Index wirklich entfernen?',
   never: 'noch nie',
+  auditNav: 'Audit',
+  auditTitle: 'Audit und Monitoring',
+  auditLead: 'Jede Aktion eines Agents wird mit Name, Token, Werkzeug, Postfach, Mails und Datenfluss festgehalten. Mehrere Agents hinter einem Token bleiben getrennt sichtbar.',
+  auditTabEvents: 'Ereignisse',
+  auditTabAgents: 'Agents',
+  auditAgent: 'Agent',
+  auditToken: 'Token',
+  auditAction: 'Werkzeug / Aktion',
+  auditCategory: 'Art',
+  auditStatus: 'Status',
+  auditSource: 'Quelle',
+  auditMailbox: 'Postfach',
+  auditSearch: 'Volltext in Details',
+  auditSince: 'Von',
+  auditUntil: 'Bis',
+  auditAll: 'Alle',
+  auditApply: 'Filtern',
+  auditReset: 'Zurücksetzen',
+  auditExportJson: 'Export JSON',
+  auditExportCsv: 'Export CSV',
+  auditVerify: 'Integrität prüfen',
+  auditNone: 'Keine Ereignisse für diese Auswahl.',
+  auditLoadMore: 'Ältere laden',
+  auditColTime: 'Zeit',
+  auditDetails: 'Details',
+  auditResource: 'Betroffene Ressourcen',
+  auditInput: 'Eingabe des Agents',
+  auditOutput: 'Rückgabe an den Agent (Datenfluss)',
+  auditError: 'Fehler',
+  auditChain: 'Kette',
+  auditNoName: '(ohne Namen)',
+  auditCalls: 'Aufrufe',
+  auditErrors: 'Fehler',
+  auditSends: 'Mails gesendet',
+  auditDeletes: 'Löschungen',
+  auditTools: 'Werkzeuge',
+  auditFirst: 'Erstmals',
+  auditLast: 'Zuletzt',
+  auditShowEvents: 'Ereignisse zeigen',
+  auditAgentsLead: 'Ein Token kann von mehreren Agents genutzt werden. Jeder meldet sich mit Namen (Parameter agent oder Header X-Agent-Name) und erscheint hier getrennt.',
+  auditNoAgents: 'Noch kein Agent hat sich gemeldet.',
+  auditVerifying: 'Prüfe …',
+  auditCount: (shown, total) => `${shown} von ${total} Ereignissen`,
+  auditVerifyOk: (checked) => `Kette intakt: ${checked} Einträge geprüft, keine Manipulation.`,
+  auditVerifyBroken: (seq) => `Kette gebrochen bei Eintrag ${seq}. Das Protokoll wurde verändert.`,
+  auditCategories: { read: 'Lesen', write: 'Ändern', delete: 'Löschen', send: 'Senden', sync: 'Abgleich', admin: 'Verwaltung', auth: 'Anmeldung', session: 'Sitzung', flow: 'Datenfluss' },
+  auditStatuses: { ok: 'OK', error: 'Fehler', denied: 'Abgelehnt' },
+  auditSources: { mcp: 'Agent (MCP)', web: 'Oberfläche', system: 'System' },
 };
 
 export const en: Messages = {
@@ -562,7 +672,8 @@ export const en: Messages = {
   privacyRights: 'You can request access, correction, and deletion, ask for processing to be restricted, and complain to a supervisory authority. The authority is the state commissioner for data protection and freedom of information of Rhineland-Palatinate. A message to hi@sinthex.de is enough.',
   authLead: 'Connect your IMAP and SMTP mailboxes, build a searchable index, and give agents precise access over MCP.',
   loginTitle: 'Sign in',
-  loginLead: 'Sign in with your MailConnect account.',
+  loginLead: 'Sign in with your email or username.',
+  loginOrEmail: 'Email or username',
   email: 'Email',
   password: 'Password',
   signingIn: 'Signing in …',
@@ -666,6 +777,12 @@ export const en: Messages = {
   inviteMeta: (created, until) => `Created ${created} · valid until ${until}`,
   accountTitle: 'Account',
   signedInAs: (email) => `Signed in as ${email}.`,
+  signedInAsUsername: (username, email) => `Signed in as ${username} (${email}).`,
+  loginUsername: 'Username',
+  loginUsernameHint: 'Optional. Use it to sign in instead of your email. 3–32 characters: letters, digits, period, hyphen or underscore.',
+  loginUsernamePlaceholder: 'for example niko',
+  saveUsername: 'Save username',
+  usernameSaved: 'Username saved.',
   changePassword: 'Change password',
   currentPassword: 'Current password',
   newPassword: 'New password (at least 12 characters)',
@@ -745,4 +862,52 @@ export const en: Messages = {
   needChannel: 'Enable IMAP or SMTP, or both.',
   removeConfirm: 'Remove this mailbox and its index?',
   never: 'never',
+  auditNav: 'Audit',
+  auditTitle: 'Audit and monitoring',
+  auditLead: 'Every agent action is recorded with name, token, tool, mailbox, mails and data flow. Several agents behind one token stay visible separately.',
+  auditTabEvents: 'Events',
+  auditTabAgents: 'Agents',
+  auditAgent: 'Agent',
+  auditToken: 'Token',
+  auditAction: 'Tool / action',
+  auditCategory: 'Type',
+  auditStatus: 'Status',
+  auditSource: 'Source',
+  auditMailbox: 'Mailbox',
+  auditSearch: 'Full text in details',
+  auditSince: 'From',
+  auditUntil: 'To',
+  auditAll: 'All',
+  auditApply: 'Filter',
+  auditReset: 'Reset',
+  auditExportJson: 'Export JSON',
+  auditExportCsv: 'Export CSV',
+  auditVerify: 'Verify integrity',
+  auditNone: 'No events for this selection.',
+  auditLoadMore: 'Load older',
+  auditColTime: 'Time',
+  auditDetails: 'Details',
+  auditResource: 'Affected resources',
+  auditInput: 'Agent input',
+  auditOutput: 'Returned to the agent (data flow)',
+  auditError: 'Error',
+  auditChain: 'Chain',
+  auditNoName: '(no name)',
+  auditCalls: 'Calls',
+  auditErrors: 'Errors',
+  auditSends: 'Mails sent',
+  auditDeletes: 'Deletions',
+  auditTools: 'Tools',
+  auditFirst: 'First seen',
+  auditLast: 'Last seen',
+  auditShowEvents: 'Show events',
+  auditAgentsLead: 'One token can serve several agents. Each reports its name (parameter agent or header X-Agent-Name) and shows up separately here.',
+  auditNoAgents: 'No agent has connected yet.',
+  auditVerifying: 'Checking …',
+  auditCount: (shown, total) => `${shown} of ${total} events`,
+  auditVerifyOk: (checked) => `Chain intact: ${checked} entries checked, no tampering.`,
+  auditVerifyBroken: (seq) => `Chain broken at entry ${seq}. The log was altered.`,
+  auditCategories: { read: 'Read', write: 'Write', delete: 'Delete', send: 'Send', sync: 'Sync', admin: 'Admin', auth: 'Sign-in', session: 'Session', flow: 'Data flow' },
+  auditStatuses: { ok: 'OK', error: 'Error', denied: 'Denied' },
+  auditSources: { mcp: 'Agent (MCP)', web: 'Web UI', system: 'System' },
 };

@@ -5,6 +5,7 @@ import { HomePage } from './pages/HomePage';
 import { MailboxFormPage } from './pages/MailboxFormPage';
 import { SignaturePreviewPage } from './pages/SignaturePreviewPage';
 import { SearchPage } from './pages/SearchPage';
+import { AuditPage } from './pages/AuditPage';
 import { TokensPage } from './pages/TokensPage';
 import { InvitesPage } from './pages/InvitesPage';
 import { AccountPage } from './pages/AccountPage';
@@ -31,6 +32,7 @@ function Shell() {
           <NavLink to="/postfaecher" end>{m.mailboxes}</NavLink>
           <NavLink to="/search">{m.search}</NavLink>
           <NavLink to="/tokens">{m.tokens}</NavLink>
+          <NavLink to="/audit">{m.auditNav}</NavLink>
           {user.role === 'admin' && <NavLink to="/invites">{m.invites}</NavLink>}
           <NavLink to="/account">{m.account}</NavLink>
         </nav>
@@ -61,6 +63,7 @@ export function App() {
         <Route path="mailboxes/:id" element={<MailboxFormPage />} />
         <Route path="search" element={<SearchPage />} />
         <Route path="tokens" element={<TokensPage />} />
+        <Route path="audit" element={<AuditPage />} />
         <Route path="invites" element={<InvitesPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="*" element={<Navigate to="/postfaecher" replace />} />

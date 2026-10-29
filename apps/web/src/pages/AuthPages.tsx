@@ -29,7 +29,7 @@ export function LoginPage() {
   const { m } = useI18n();
   const nav = useNavigate();
   const loc = useLocation();
-  const [email, setEmail] = useState('');
+  const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -39,7 +39,7 @@ export function LoginPage() {
     e.preventDefault();
     setBusy(true); setErr('');
     try {
-      const r = await api<{ user: User }>('auth/login', 'POST', { email, password });
+      const r = await api<{ user: User }>('auth/login', 'POST', { login, password });
       setUser(r.user);
       nav((loc.state as { from?: string } | null)?.from ?? '/postfaecher', { replace: true });
     } catch (x) { setErr(errMsg(x)); } finally { setBusy(false); }
@@ -48,7 +48,7 @@ export function LoginPage() {
   return (
     <AuthFrame title={m.loginTitle} lead={m.loginLead}>
       <form className="form" onSubmit={submit}>
-        <label>{m.email}<input type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
+        <label>{m.loginOrEmail}<input type="text" autoComplete="username" required value={login} onChange={(e) => setLogin(e.target.value)} /></label>
         <label>{m.password}<input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></label>
         {err && <p className="error" role="alert">{err}</p>}
         <button type="submit" className="btn primary" disabled={busy}>{busy ? m.signingIn : m.signIn}</button>

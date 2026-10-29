@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { closeSync, copyFileSync, existsSync, mkdirSync, openSync, readSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
 import Database from "better-sqlite3-multiple-ciphers";
@@ -5,6 +6,13 @@ import { rewriteFolderPath } from "@mailconnect/domain";
 import type {
   ApiToken,
   ApiTokenRepository,
+  AuditAgentSummary,
+  AuditEvent,
+  AuditEventDraft,
+  AuditFilter,
+  AuditRepository,
+  AuditScope,
+  AuditVerification,
   CredentialKind,
   CredentialRepository,
   EncryptedBlob,
@@ -33,6 +41,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  username TEXT UNIQUE COLLATE NOCASE,
   password_hash TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
   created_at TEXT NOT NULL
@@ -66,6 +75,38 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   revoked_at TEXT,
   last_used_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS audit_events (
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
+  ts TEXT NOT NULL,
+  user_id TEXT,
+  source TEXT NOT NULL,
+  category TEXT NOT NULL,
+  action TEXT NOT NULL,
+  status TEXT NOT NULL,
+  duration_ms INTEGER,
+  token_id TEXT,
+  token_name TEXT,
+  agent_name TEXT,
+  run_id TEXT,
+  mailbox_id TEXT,
+  mailbox_email TEXT,
+  resource TEXT NOT NULL DEFAULT '{}',
+  input TEXT,
+  output TEXT,
+  error TEXT,
+  ip TEXT,
+  user_agent TEXT,
+  prev_hash TEXT NOT NULL,
+  hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_user_ts ON audit_events(user_id, ts);
+CREATE INDEX IF NOT EXISTS idx_audit_agent ON audit_events(agent_name);
+CREATE INDEX IF NOT EXISTS idx_audit_token ON audit_events(token_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_events(action);
+CREATE INDEX IF NOT EXISTS idx_audit_mailbox ON audit_events(mailbox_id);
+CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_events(run_id);
 
 CREATE TABLE IF NOT EXISTS mailboxes (
   id TEXT PRIMARY KEY,
@@ -441,6 +482,7 @@ export class SqliteDatabase {
   readonly invites: InviteRepository;
   readonly sessions: SessionRepository;
   readonly tokens: ApiTokenRepository;
+  readonly audit: AuditRepository;
   readonly mailboxes: MailboxRepository;
   readonly credentials: CredentialRepository;
   readonly messages: MessageIndexRepository;
@@ -452,6 +494,7 @@ export class SqliteDatabase {
     this.invites = new InviteRepo(this.db);
     this.sessions = new SessionRepo(this.db);
     this.tokens = new TokenRepo(this.db);
+    this.audit = new AuditRepo(this.db);
     this.mailboxes = new MailboxRepo(this.db);
     this.credentials = new CredentialRepo(this.db);
     this.messages = new MessageRepo(this.db);
@@ -493,7 +536,32 @@ export class SqliteDatabase {
     if (!folderColumns.some((column) => column.name === "remote_count")) {
       this.db.exec("ALTER TABLE folder_sync ADD COLUMN remote_count INTEGER NOT NULL DEFAULT 0");
     }
+    const userColumns = this.db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+    if (!userColumns.some((column) => column.name === "username")) {
+      this.db.exec("ALTER TABLE users ADD COLUMN username TEXT");
+      this.db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL");
+    }
   }
+}
+
+type UserRow = {
+  id: string;
+  email: string;
+  username: string | null;
+  password_hash: string;
+  role: User["role"];
+  created_at: string;
+};
+
+function mapUser(row: UserRow): User {
+  return {
+    id: row.id,
+    email: row.email,
+    username: row.username ?? null,
+    passwordHash: row.password_hash,
+    role: row.role,
+    createdAt: row.created_at,
+  };
 }
 
 class UserRepo implements UserRepository {
@@ -506,26 +574,31 @@ class UserRepo implements UserRepository {
 
   insert(user: User): void {
     this.db
-      .prepare("INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(user.id, user.email, user.passwordHash, user.role, user.createdAt);
+      .prepare("INSERT INTO users (id, email, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(user.id, user.email, user.username, user.passwordHash, user.role, user.createdAt);
   }
 
   findByEmail(email: string): User | null {
-    const row = this.db.prepare("SELECT * FROM users WHERE email = ?").get(email) as
-      | { id: string; email: string; password_hash: string; role: User["role"]; created_at: string }
-      | undefined;
-    return row ? { id: row.id, email: row.email, passwordHash: row.password_hash, role: row.role, createdAt: row.created_at } : null;
+    const row = this.db.prepare("SELECT * FROM users WHERE email = ?").get(email) as UserRow | undefined;
+    return row ? mapUser(row) : null;
+  }
+
+  findByUsername(username: string): User | null {
+    const row = this.db.prepare("SELECT * FROM users WHERE username = ? COLLATE NOCASE").get(username) as UserRow | undefined;
+    return row ? mapUser(row) : null;
   }
 
   findById(id: string): User | null {
-    const row = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as
-      | { id: string; email: string; password_hash: string; role: User["role"]; created_at: string }
-      | undefined;
-    return row ? { id: row.id, email: row.email, passwordHash: row.password_hash, role: row.role, createdAt: row.created_at } : null;
+    const row = this.db.prepare("SELECT * FROM users WHERE id = ?").get(id) as UserRow | undefined;
+    return row ? mapUser(row) : null;
   }
 
   updatePassword(id: string, passwordHash: string): void {
     this.db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(passwordHash, id);
+  }
+
+  updateUsername(id: string, username: string | null): void {
+    this.db.prepare("UPDATE users SET username = ? WHERE id = ?").run(username, id);
   }
 }
 
@@ -655,6 +728,13 @@ class TokenRepo implements ApiTokenRepository {
     return row?.user_id ?? null;
   }
 
+  findByHash(tokenHash: string): { id: string; userId: string; name: string } | null {
+    const row = this.db
+      .prepare("SELECT id, user_id, name FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL")
+      .get(tokenHash) as { id: string; user_id: string; name: string } | undefined;
+    return row ? { id: row.id, userId: row.user_id, name: row.name } : null;
+  }
+
   touch(tokenHash: string, at: string): void {
     this.db.prepare("UPDATE api_tokens SET last_used_at = ? WHERE token_hash = ?").run(at, tokenHash);
   }
@@ -664,6 +744,237 @@ class TokenRepo implements ApiTokenRepository {
       .prepare("UPDATE api_tokens SET revoked_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL")
       .run(at, id, userId);
     return result.changes > 0;
+  }
+}
+
+type AuditRow = {
+  seq: number;
+  id: string;
+  ts: string;
+  user_id: string | null;
+  source: AuditEvent["source"];
+  category: AuditEvent["category"];
+  action: string;
+  status: AuditEvent["status"];
+  duration_ms: number | null;
+  token_id: string | null;
+  token_name: string | null;
+  agent_name: string | null;
+  run_id: string | null;
+  mailbox_id: string | null;
+  mailbox_email: string | null;
+  resource: string;
+  input: string | null;
+  output: string | null;
+  error: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  prev_hash: string;
+  hash: string;
+};
+
+const GENESIS_HASH = "0".repeat(64);
+
+function auditDigest(prevHash: string, row: Omit<AuditRow, "seq" | "prev_hash" | "hash">): string {
+  const canonical = JSON.stringify([
+    row.id, row.ts, row.user_id, row.source, row.category, row.action, row.status, row.duration_ms,
+    row.token_id, row.token_name, row.agent_name, row.run_id, row.mailbox_id, row.mailbox_email,
+    row.resource, row.input, row.output, row.error, row.ip, row.user_agent,
+  ]);
+  return createHash("sha256").update(prevHash).update("\n").update(canonical).digest("hex");
+}
+
+function parseJson(text: string | null): unknown {
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function mapAudit(row: AuditRow): AuditEvent {
+  const resource = parseJson(row.resource);
+  return {
+    seq: row.seq,
+    id: row.id,
+    ts: row.ts,
+    userId: row.user_id,
+    source: row.source,
+    category: row.category,
+    action: row.action,
+    status: row.status,
+    durationMs: row.duration_ms,
+    tokenId: row.token_id,
+    tokenName: row.token_name,
+    agentName: row.agent_name,
+    runId: row.run_id,
+    mailboxId: row.mailbox_id,
+    mailboxEmail: row.mailbox_email,
+    resource: resource && typeof resource === "object" ? (resource as Record<string, unknown>) : {},
+    input: parseJson(row.input),
+    output: parseJson(row.output),
+    error: row.error,
+    ip: row.ip,
+    userAgent: row.user_agent,
+    prevHash: row.prev_hash,
+    hash: row.hash,
+  };
+}
+
+function auditWhere(scope: AuditScope, filter: AuditFilter): { sql: string; params: unknown[] } {
+  const clauses: string[] = [scope.includeUnowned ? "(user_id = ? OR user_id IS NULL)" : "user_id = ?"];
+  const params: unknown[] = [scope.userId];
+  const eq = (column: string, value: string | undefined) => {
+    if (value) {
+      clauses.push(`${column} = ?`);
+      params.push(value);
+    }
+  };
+  eq("agent_name", filter.agent);
+  eq("token_id", filter.tokenId);
+  eq("action", filter.action);
+  eq("category", filter.category);
+  eq("status", filter.status);
+  eq("source", filter.source);
+  eq("mailbox_id", filter.mailboxId);
+  eq("run_id", filter.runId);
+  if (filter.since) {
+    clauses.push("ts >= ?");
+    params.push(filter.since);
+  }
+  if (filter.until) {
+    clauses.push("ts <= ?");
+    params.push(filter.until);
+  }
+  if (filter.q) {
+    const like = `%${filter.q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    clauses.push(
+      "(action LIKE ? ESCAPE '\\' OR agent_name LIKE ? ESCAPE '\\' OR token_name LIKE ? ESCAPE '\\' OR mailbox_email LIKE ? ESCAPE '\\' OR resource LIKE ? ESCAPE '\\' OR input LIKE ? ESCAPE '\\' OR output LIKE ? ESCAPE '\\' OR error LIKE ? ESCAPE '\\')",
+    );
+    for (let i = 0; i < 8; i += 1) params.push(like);
+  }
+  return { sql: clauses.join(" AND "), params };
+}
+
+class AuditRepo implements AuditRepository {
+  private readonly appendRow: (row: Omit<AuditRow, "seq" | "prev_hash" | "hash">) => AuditRow;
+
+  constructor(private readonly db: Database.Database) {
+    this.appendRow = this.db.transaction((row: Omit<AuditRow, "seq" | "prev_hash" | "hash">): AuditRow => {
+      const last = this.db.prepare("SELECT hash FROM audit_events ORDER BY seq DESC LIMIT 1").get() as { hash: string } | undefined;
+      const prevHash = last?.hash ?? GENESIS_HASH;
+      const hash = auditDigest(prevHash, row);
+      const result = this.db
+        .prepare(
+          `INSERT INTO audit_events (id, ts, user_id, source, category, action, status, duration_ms, token_id, token_name, agent_name, run_id,
+             mailbox_id, mailbox_email, resource, input, output, error, ip, user_agent, prev_hash, hash)
+           VALUES (@id, @ts, @user_id, @source, @category, @action, @status, @duration_ms, @token_id, @token_name, @agent_name, @run_id,
+             @mailbox_id, @mailbox_email, @resource, @input, @output, @error, @ip, @user_agent, @prev_hash, @hash)`,
+        )
+        .run({ ...row, prev_hash: prevHash, hash });
+      return { ...row, seq: Number(result.lastInsertRowid), prev_hash: prevHash, hash };
+    });
+  }
+
+  insert(draft: AuditEventDraft, id: string, ts: string): AuditEvent {
+    const row = this.appendRow({
+      id,
+      ts,
+      user_id: draft.userId,
+      source: draft.source,
+      category: draft.category,
+      action: draft.action,
+      status: draft.status,
+      duration_ms: draft.durationMs ?? null,
+      token_id: draft.tokenId ?? null,
+      token_name: draft.tokenName ?? null,
+      agent_name: draft.agentName ?? null,
+      run_id: draft.runId ?? null,
+      mailbox_id: draft.mailboxId ?? null,
+      mailbox_email: draft.mailboxEmail ?? null,
+      resource: JSON.stringify(draft.resource ?? {}),
+      input: draft.input === undefined || draft.input === null ? null : JSON.stringify(draft.input),
+      output: draft.output === undefined || draft.output === null ? null : JSON.stringify(draft.output),
+      error: draft.error ?? null,
+      ip: draft.ip ?? null,
+      user_agent: draft.userAgent ?? null,
+    });
+    return mapAudit(row);
+  }
+
+  list(scope: AuditScope, filter: AuditFilter): { events: AuditEvent[]; total: number } {
+    const where = auditWhere(scope, filter);
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM audit_events WHERE ${where.sql}`).get(...where.params) as { n: number }).n;
+    const paged = filter.before ? `${where.sql} AND seq < ?` : where.sql;
+    const params = filter.before ? [...where.params, filter.before] : where.params;
+    const rows = this.db
+      .prepare(`SELECT * FROM audit_events WHERE ${paged} ORDER BY seq DESC LIMIT ?`)
+      .all(...params, filter.limit ?? 100) as AuditRow[];
+    return { events: rows.map(mapAudit), total };
+  }
+
+  find(scope: AuditScope, id: string): AuditEvent | null {
+    const where = auditWhere(scope, {});
+    const row = this.db.prepare(`SELECT * FROM audit_events WHERE ${where.sql} AND id = ?`).get(...where.params, id) as AuditRow | undefined;
+    return row ? mapAudit(row) : null;
+  }
+
+  agents(scope: AuditScope, since?: string): AuditAgentSummary[] {
+    const where = auditWhere(scope, { since });
+    const rows = this.db
+      .prepare(
+        `SELECT token_id, token_name, agent_name,
+                COUNT(*) AS calls,
+                SUM(CASE WHEN status != 'ok' THEN 1 ELSE 0 END) AS errors,
+                SUM(CASE WHEN category = 'send' AND status = 'ok' THEN 1 ELSE 0 END) AS sends,
+                SUM(CASE WHEN category = 'delete' AND status = 'ok' THEN 1 ELSE 0 END) AS deletes,
+                GROUP_CONCAT(DISTINCT action) AS tools,
+                MIN(ts) AS first_seen, MAX(ts) AS last_seen
+           FROM audit_events
+          WHERE ${where.sql} AND source = 'mcp' AND token_id IS NOT NULL
+          GROUP BY token_id, token_name, agent_name
+          ORDER BY last_seen DESC`,
+      )
+      .all(...where.params) as Array<{
+      token_id: string | null;
+      token_name: string | null;
+      agent_name: string | null;
+      calls: number;
+      errors: number;
+      sends: number;
+      deletes: number;
+      tools: string | null;
+      first_seen: string;
+      last_seen: string;
+    }>;
+    return rows.map((row) => ({
+      tokenId: row.token_id,
+      tokenName: row.token_name,
+      agentName: row.agent_name,
+      calls: row.calls,
+      errors: row.errors,
+      sends: row.sends,
+      deletes: row.deletes,
+      tools: row.tools ? row.tools.split(",").sort() : [],
+      firstSeen: row.first_seen,
+      lastSeen: row.last_seen,
+    }));
+  }
+
+  verify(): AuditVerification {
+    let prev: string | null = null;
+    let checked = 0;
+    for (const row of this.db.prepare("SELECT * FROM audit_events ORDER BY seq ASC").iterate() as IterableIterator<AuditRow>) {
+      const { seq, prev_hash, hash, ...rest } = row;
+      const expectedPrev: string = prev ?? prev_hash;
+      if (prev_hash !== expectedPrev || auditDigest(prev_hash, rest) !== hash) {
+        return { ok: false, checked, brokenAtSeq: seq };
+      }
+      prev = hash;
+      checked += 1;
+    }
+    return { ok: true, checked, brokenAtSeq: null };
   }
 }
 

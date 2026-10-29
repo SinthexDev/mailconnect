@@ -3,11 +3,40 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
-import { AppError, unauthorized, type Mailbox, type PublicUser } from "@mailconnect/domain";
+import { AppError, unauthorized, type AuditCategory, type Mailbox, type PublicUser } from "@mailconnect/domain";
 import type { Container } from "./container.js";
 import { mountMcp } from "./mcp.js";
 
 const COOKIE = "mc_session";
+
+const webActors = new WeakMap<Request, PublicUser>();
+
+const AUDIT_SKIP = new Set([
+  "GET /api/health",
+  "GET /api/auth/me",
+  "GET /api/providers",
+  "GET /api/stats",
+  "GET /api/mailboxes",
+  "GET /api/tokens",
+  "GET /api/invites",
+  "POST /api/cron/sync",
+]);
+
+const auditFilterSchema = z.object({
+  agent: z.string().max(120).optional(),
+  tokenId: z.string().max(80).optional(),
+  action: z.string().max(120).optional(),
+  category: z.enum(["read", "write", "delete", "send", "sync", "admin", "auth", "session", "flow"]).optional(),
+  status: z.enum(["ok", "error", "denied"]).optional(),
+  source: z.enum(["mcp", "web", "system"]).optional(),
+  mailboxId: z.string().max(80).optional(),
+  runId: z.string().max(120).optional(),
+  since: z.string().max(40).optional(),
+  until: z.string().max(40).optional(),
+  q: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional(),
+  before: z.coerce.number().int().min(1).optional(),
+});
 
 const channelSchema = z.object({
   host: z.string().trim().min(1).max(255),
@@ -51,6 +80,9 @@ const sendSchema = z.object({
     contentBase64: z.string().min(1).max(28_000_000),
     contentId: z.string().max(255).optional(),
   }).strict()).max(10).optional(),
+  saveToSent: z.boolean().optional(),
+  flags: z.array(z.string().min(1).max(64)).max(20).optional(),
+  priority: z.enum(["high", "normal", "low"]).optional(),
 });
 
 export function createApp(container: Container): express.Express {
@@ -66,9 +98,11 @@ export function createApp(container: Container): express.Express {
   });
   router.use(express.json({ limit: "40mb" }));
   mountMcp(router, container);
+  router.use("/api", auditWeb(container));
   mountApi(router, container);
   mountSpa(router, container);
   router.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    res.locals.auditError = error instanceof Error ? error.message : String(error);
     if (error instanceof AppError) {
       res.status(error.status).json({ error: error.code, message: error.message });
       return;
@@ -106,10 +140,17 @@ function mountApi(router: express.Router, container: Container): void {
   });
 
   router.post("/api/auth/login", asyncRoute(async (req, res) => {
-    const body = z.object({ email: z.string().max(320), password: z.string().max(2000) }).parse(req.body);
-    const key = body.email.trim().toLowerCase();
+    const body = z.object({
+      login: z.string().max(320).optional(),
+      email: z.string().max(320).optional(),
+      password: z.string().max(2000),
+    }).parse(req.body);
+    const login = (body.login ?? body.email ?? "").trim();
+    if (!login) throw new AppError("invalid_login", "Anmeldung oder Passwort ist falsch.", 401);
+    const key = login.toLowerCase();
     if (limited(loginHits, key)) throw new AppError("rate_limited", "Zu viele Versuche. Bitte später erneut versuchen.", 429);
-    const result = await container.auth.login(body.email, body.password);
+    const result = await container.auth.login(login, body.password);
+    webActors.set(req, result.user);
     loginHits.delete(key);
     setSession(res, container, result.token);
     res.json({ user: result.user });
@@ -133,6 +174,7 @@ function mountApi(router: express.Router, container: Container): void {
       password: z.string().max(2000),
     }).parse(req.body);
     const result = await container.auth.acceptInvite(body.token, body.email, body.password);
+    webActors.set(req, result.user);
     setSession(res, container, result.token);
     res.status(201).json({ user: result.user });
   }));
@@ -142,6 +184,13 @@ function mountApi(router: express.Router, container: Container): void {
     const body = z.object({ currentPassword: z.string().max(2000), newPassword: z.string().max(2000) }).parse(req.body);
     await container.auth.changePassword(user.id, body.currentPassword, body.newPassword);
     res.status(204).end();
+  }));
+
+  router.post("/api/auth/username", asyncRoute(async (req, res) => {
+    const user = currentUser(container, req);
+    const body = z.object({ username: z.string().max(64).nullable().optional() }).parse(req.body ?? {});
+    const updated = container.auth.updateUsername(user.id, body.username ?? null);
+    res.json({ user: updated });
   }));
 
   router.get("/api/invites", (req, res) => {
@@ -178,6 +227,49 @@ function mountApi(router: express.Router, container: Container): void {
   router.delete("/api/tokens/:id", (req, res) => {
     container.tokens.revoke(currentUser(container, req), req.params.id);
     res.status(204).end();
+  });
+
+  router.get("/api/audit", (req, res) => {
+    const filter = auditFilterSchema.parse(req.query);
+    res.json(container.audit.list(currentUser(container, req), filter));
+  });
+
+  router.get("/api/audit/agents", (req, res) => {
+    const query = z.object({ since: z.string().max(40).optional() }).parse(req.query);
+    res.json({ agents: container.audit.agents(currentUser(container, req), query.since) });
+  });
+
+  router.get("/api/audit/verify", (req, res) => {
+    res.json(container.audit.verify(currentUser(container, req)));
+  });
+
+  router.get("/api/audit/export", (req, res) => {
+    const query = auditFilterSchema.extend({ format: z.enum(["json", "csv"]).optional() }).parse(req.query);
+    const { format, ...filter } = query;
+    const user = currentUser(container, req);
+    const events = container.audit.export(user, filter);
+    container.audit.record({
+      userId: user.id,
+      source: "web",
+      category: "admin",
+      action: "audit.export",
+      status: "ok",
+      input: { format: format ?? "json", ...filter },
+      output: { rows: events.length },
+      ip: req.ip ?? null,
+      userAgent: req.get("user-agent")?.slice(0, 300) ?? null,
+    });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    res.setHeader("Content-Disposition", `attachment; filename="mailconnect-audit-${stamp}.${format === "csv" ? "csv" : "json"}"`);
+    if (format === "csv") {
+      res.type("text/csv; charset=utf-8").send(auditCsv(events));
+      return;
+    }
+    res.type("application/json").send(JSON.stringify(events, null, 2));
+  });
+
+  router.get("/api/audit/:id", (req, res) => {
+    res.json({ event: container.audit.get(currentUser(container, req), req.params.id) });
   });
 
   router.get("/api/providers", (_req, res) => {
@@ -321,9 +413,90 @@ function mountApi(router: express.Router, container: Container): void {
       html: body.html,
       fromName: body.fromName,
       attachments: body.attachments,
+      saveToSent: body.saveToSent,
+      flags: body.flags,
+      priority: body.priority,
     });
     res.status(202).json(sent);
   }));
+}
+
+function auditCsv(events: ReturnType<Container["audit"]["export"]>): string {
+  const head = ["seq", "zeit", "quelle", "kategorie", "aktion", "status", "agent", "token", "postfach", "ressource", "eingabe", "ausgabe", "fehler", "ip", "hash"];
+  const cell = (value: unknown): string => {
+    let text = value === null || value === undefined ? "" : typeof value === "string" ? value : JSON.stringify(value);
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
+  };
+  const rows = events.map((event) =>
+    [event.seq, event.ts, event.source, event.category, event.action, event.status, event.agentName, event.tokenName, event.mailboxEmail,
+      event.resource, event.input, event.output, event.error, event.ip, event.hash].map(cell).join(","));
+  return `\ufeff${[head.map(cell).join(","), ...rows].join("\r\n")}\r\n`;
+}
+
+function auditCategoryOf(method: string, path: string): AuditCategory {
+  if (path.startsWith("/api/auth/")) return "auth";
+  if (path === "/api/messages/send") return "send";
+  if (path.endsWith("/sync") || path.endsWith("/sync/stop")) return "sync";
+  if (method === "DELETE") return "delete";
+  if (path.startsWith("/api/tokens") || path.startsWith("/api/invites") || path.startsWith("/api/mailboxes")) return method === "GET" ? "read" : "admin";
+  return method === "GET" ? "read" : "write";
+}
+
+/** Protokolliert Aktionen über die Weboberfläche (Anmeldung, Postfächer, Tokens, Lesen, Versand). */
+function auditWeb(container: Container) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    const started = Date.now();
+    const sendBody: { value: unknown } = { value: null };
+    const full = req.originalUrl.split("?")[0] ?? "";
+    const path = container.config.basePath && full.startsWith(container.config.basePath) ? full.slice(container.config.basePath.length) : full;
+    if (req.method === "POST" && path === "/api/messages/send") {
+      const original = res.json.bind(res);
+      res.json = (body: unknown) => {
+        sendBody.value = body;
+        return original(body);
+      };
+    }
+    const sessionUser = container.auth.userFromSession(readCookie(req.headers.cookie, COOKIE));
+    const mailboxHint = typeof req.body?.mailboxId === "string" ? (req.body.mailboxId as string) : null;
+    const needsMailboxes = Boolean(mailboxHint) || path.startsWith("/api/mailboxes/");
+    const mailboxes = sessionUser && needsMailboxes ? container.mailboxes.list(sessionUser) : [];
+    res.on("finish", () => {
+      if (AUDIT_SKIP.has(`${req.method} ${path}`) || path.startsWith("/api/audit")) return;
+      const actor = webActors.get(req) ?? sessionUser;
+      const params = (req.params ?? {}) as Record<string, string>;
+      const mailboxId = path.startsWith("/api/mailboxes/") && params.id ? params.id : mailboxHint;
+      const resource: Record<string, unknown> = { ...params };
+      if (path.startsWith("/api/messages/") && params.id && actor) {
+        try {
+          const message = container.mail.getIndexed(actor, params.id);
+          resource.message = { id: message.id, folder: message.folder, uid: message.uid, from: message.from, subject: message.subject };
+        } catch {
+          // Nachricht nicht mehr im Index
+        }
+      }
+      const status = res.statusCode < 400 ? "ok" : res.statusCode === 401 || res.statusCode === 403 ? "denied" : "error";
+      const output: Record<string, unknown> = { httpStatus: res.statusCode };
+      if (sendBody.value && typeof sendBody.value === "object") Object.assign(output, sendBody.value);
+      container.audit.record({
+        userId: actor?.id ?? null,
+        source: "web",
+        category: auditCategoryOf(req.method, path),
+        action: `${req.method} ${typeof req.route?.path === "string" ? req.route.path : path}`,
+        status,
+        durationMs: Date.now() - started,
+        mailboxId: mailboxId && mailboxes.some((mailbox) => mailbox.id === mailboxId) ? mailboxId : null,
+        mailboxEmail: mailboxes.find((mailbox) => mailbox.id === mailboxId)?.email ?? null,
+        resource,
+        input: { ...(req.method === "GET" ? {} : { body: req.body ?? null }), query: req.query },
+        output,
+        error: status === "ok" ? null : String(res.locals.auditError ?? `HTTP ${res.statusCode}`),
+        ip: req.ip ?? null,
+        userAgent: req.get("user-agent")?.slice(0, 300) ?? null,
+      });
+    });
+    next();
+  };
 }
 
 function mountSpa(router: express.Router, container: Container): void {
@@ -357,6 +530,7 @@ function isTooLarge(error: unknown): boolean {
 function currentUser(container: Container, req: Request): PublicUser {
   const user = container.auth.userFromSession(readCookie(req.headers.cookie, COOKIE));
   if (!user) throw unauthorized();
+  webActors.set(req, user);
   return user;
 }
 

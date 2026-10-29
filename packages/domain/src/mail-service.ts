@@ -1,5 +1,5 @@
 import { AppError, notFound } from "./errors.js";
-import { assertFolderPath, assertNotInbox, buildPlainMessage, filterDirectChildren, normalizeFlag, normalizeFlags, resolveSentFolder, shouldSaveToSent } from "./imap-rules.js";
+import { assertFolderPath, assertNotInbox, buildPlainMessage, filterDirectChildren, normalizeFlag, normalizeFlags, resolveSentFolder, sentCopyFlags, shouldSaveToSent } from "./imap-rules.js";
 import type {
   Clock,
   CredentialRepository,
@@ -10,8 +10,9 @@ import type {
   SmtpPort,
 } from "./ports.js";
 import { outboundFrom } from "./from-name.js";
+import { normalizeMailPriority } from "./mail-priority.js";
 import { prepareOutboundAttachments, type InboundAttachment } from "./outbound-attachments.js";
-import type { FlagMode, FullMessage, ImapSearchCriteria, IndexedMessage, OutboundMail, PublicUser, SearchQuery, StoredAppend } from "./types.js";
+import type { FlagMode, FullMessage, ImapSearchCriteria, IndexedMessage, MailPriority, OutboundMail, PublicUser, SearchQuery, StoredAppend } from "./types.js";
 
 export type SendInput = {
   mailboxId: string;
@@ -24,6 +25,10 @@ export type SendInput = {
   fromName?: string;
   attachments?: InboundAttachment[];
   saveToSent?: boolean;
+  /** Extra IMAP flags for the Sent copy (\\Seen is always set). */
+  flags?: string[];
+  /** Delivery priority for the recipient (X-Priority / Importance), not an IMAP flag. */
+  priority?: MailPriority | string;
 };
 
 export type MessageTarget = {
@@ -243,6 +248,7 @@ export class MailService {
     const blob = this.credentials.get(mailbox.id, "smtp");
     if (!blob) throw new AppError("missing_secret", "SMTP-Zugangsdaten fehlen.", 500);
     const attachments = prepareOutboundAttachments(input.attachments);
+    const priority = normalizeMailPriority(input.priority === undefined ? undefined : String(input.priority));
     const message: OutboundMail = {
       from: outboundFrom(mailbox.email, mailbox.displayName, input.fromName),
       to: cleanAddresses(input.to),
@@ -251,17 +257,20 @@ export class MailService {
       subject: input.subject.slice(0, 998),
       text: input.text,
       html: input.html,
+      priority,
       attachments,
     };
     if (message.to.length === 0) throw new AppError("missing_recipient", "Mindestens ein Empfänger ist nötig.", 400);
     if (message.to.length + message.cc.length + message.bcc.length > 50) {
       throw new AppError("too_many_recipients", "Zu viele Empfänger.", 400);
     }
+    const flags = sentCopyFlags(input.flags);
     const sent = await this.smtp.send({ ...mailbox.smtp, password: this.vault.decrypt(blob) }, message);
-    if (!shouldSaveToSent(input.saveToSent, mailbox.serverStoresSent)) {
+    const wantsFlags = (input.flags?.length ?? 0) > 0;
+    if (!shouldSaveToSent(input.saveToSent, mailbox.serverStoresSent) && !wantsFlags) {
       return { ok: true, messageId: sent.messageId, attachmentCount: attachments.length, sentFolder: null, sentUid: null, savedToSent: false, saveError: null };
     }
-    const copy = await this.keepSentCopy(user, mailbox, message, sent.raw);
+    const copy = await this.keepSentCopy(user, mailbox, message, sent.raw, flags);
     return { ok: true, messageId: sent.messageId, attachmentCount: attachments.length, ...copy };
   }
 
@@ -270,6 +279,7 @@ export class MailService {
     mailbox: { id: string; imap: { host: string; port: number; secure: boolean; username: string } | null; sentFolder: string },
     message: OutboundMail,
     raw: Uint8Array | null,
+    flags: string[],
   ): Promise<{ sentFolder: string | null; sentUid: number | null; savedToSent: boolean; saveError: string | null }> {
     if (!mailbox.imap) return { sentFolder: null, sentUid: null, savedToSent: false, saveError: "Dieses Konto hat kein IMAP." };
     if (!raw) return { sentFolder: null, sentUid: null, savedToSent: false, saveError: "Die Kopie für Gesendet ließ sich nicht bauen." };
@@ -282,7 +292,7 @@ export class MailService {
         const created = await this.imap.createFolder(settings, "Sent");
         folder = created.path;
       }
-      const appended = await this.imap.appendMessage(settings, folder, raw, ["\\Seen"]);
+      const appended = await this.imap.appendMessage(settings, folder, raw, flags);
       if (appended.uid !== null) {
         const indexedCount = this.messages.applyAppend(mailbox.id, {
           folder,
@@ -292,7 +302,7 @@ export class MailService {
           cc: message.cc.join(", "),
           subject: message.subject,
           date: this.clock.now(),
-          flags: ["\\Seen"],
+          flags,
           snippet: message.text.replace(/\s+/g, " ").trim().slice(0, 500),
         }, this.clock.now());
         this.mailboxes.setIndexedCount(mailbox.id, indexedCount, this.clock.now());

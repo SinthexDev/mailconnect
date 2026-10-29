@@ -1,7 +1,7 @@
 {
   "name": "mailconnect",
   "private": true,
-  "version": "1.1.43",
+  "version": "1.2.0",
   "type": "module",
   "description": "Self-hosted mail account vault with IMAP/SMTP indexing and an MCP interface.",
   "license": "MIT",

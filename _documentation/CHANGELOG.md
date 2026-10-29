@@ -1,5 +1,55 @@
 # MailConnect – Änderungen
 
+## Version 1.2.0 - 29. Oktober 2026
+### Audit und Monitoring für Agents
+
+Bisher war nicht nachvollziehbar, welcher Agent was getan hat. Mehrere Agents hinter einem Token (zum Beispiel bei Grok-Bot) ließen sich nicht trennen.
+
+#### Neue Funktionen
+
+- **Audit-Protokoll**: Jeder MCP-Aufruf wird mit Zeit, Token, Agent, Werkzeug, Postfach, betroffenen Mails, Eingabe, Rückgabe (Datenfluss), Dauer und Ergebnis festgehalten. Gesendete Mails stehen mit Empfängern, Betreff, Text, Anhangsnamen und Message-ID im Log. Passwörter, Webhook-Schlüssel und Anhangsinhalte werden nie gespeichert.
+- **Agent-Name Pflicht**: Jedes Werkzeug hat den Parameter `agent`. Alternativ meldet sich der Agent mit dem Header `X-Agent-Name`. Ohne Namen wird der Aufruf abgelehnt und als „abgelehnt“ protokolliert (abschaltbar mit `MAILCONNECT_REQUIRE_AGENT_NAME=0`). Optional gruppiert `X-Agent-Run-Id` einen Lauf.
+- **Mehrere Agents pro Token**: Die Agents-Ansicht zeigt pro Token und Agent Aufrufe, Fehler, gesendete Mails, Löschungen und genutzte Werkzeuge.
+- **Weitere Quellen**: Anmeldung, Tokens, Postfächer, Lesen und Versand in der Oberfläche, fehlgeschlagene Token-Anmeldungen, MCP-Verbindungsaufbau und Webhook-Zustellungen mit den gemeldeten Mails.
+- **Oberfläche und API**: Neue Seite Audit mit Filtern (Agent, Token, Art, Status, Postfach, Zeitraum, Volltext), Detailansicht, Export als JSON oder CSV (`/api/audit`, `/api/audit/agents`, `/api/audit/export`).
+- **Manipulationsschutz**: Die Einträge sind per Hash verkettet. Administratoren prüfen die Kette über „Integrität prüfen“ (`/api/audit/verify`).
+
+---
+
+## Version 1.1.46 - 28. Oktober 2026
+### Anmeldung mit Benutzername
+
+Die Anmeldung ging nur über die E-Mail-Adresse. Ein kurzer Login-Name fehlte.
+
+#### Neue Funktionen
+
+- **Konto**: Unter Konto lässt sich ein Benutzername setzen (3–32 Zeichen). Die Anmeldung akzeptiert E-Mail oder diesen Namen. Leer speichern entfernt ihn wieder.
+
+---
+
+## Version 1.1.45 - 27. Oktober 2026
+### Priorität für den Empfänger
+
+`flags` markierte nur die Kopie in Gesendet. Beim Empfänger kam keine hohe Priorität an.
+
+#### Neue Funktionen
+
+- **Versand**: `priority` mit `high`, `normal` oder `low` setzt `X-Priority`, `X-MSMail-Priority` und `Importance` in der ausgehenden Mail. `high` ist die Dringlichkeit für den Empfänger; `flags` bleibt die IMAP-Markierung nur in Gesendet.
+
+---
+
+## Version 1.1.44 - 27. Oktober 2026
+### Markierungen beim Versand
+
+Die Kopie in Gesendet bekam bisher nur `\\Seen`. Ein Prio-Flag (`\\Flagged`) ließ sich beim Senden nicht mitsetzen.
+
+#### Verbesserungen
+
+- **Versand**: `send_email` und die API nehmen optional `flags` an, zum Beispiel `\\Flagged` oder `prio`. Die Gesendet-Kopie hat immer `\\Seen` und die genannten Markierungen. Sind `flags` gesetzt, wird die Kopie auch dann abgelegt, wenn der Server Gesendet selbst speichert. `\\Draft` und `\\Deleted` sind beim Versand nicht erlaubt.
+- **Markierungen**: Die Aliase `prio`, `priority`, `important` und `starred` stehen für `\\Flagged`. Nach dem Versand bleibt `set_message_flags` möglich.
+
+---
+
 ## Version 1.1.43 - 20. Oktober 2026
 ### Signaturvorschau steht rechts
 

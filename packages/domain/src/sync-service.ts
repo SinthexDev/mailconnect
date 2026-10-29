@@ -141,6 +141,7 @@ export class SyncService {
     const current = this.mailboxes.findById(mailbox.id) ?? mailbox;
     if (count <= 0 || current.webhooks.length === 0) return;
     void this.webhooks.notify({
+      userId: current.userId,
       mailboxId: current.id,
       displayName: current.displayName,
       email: current.email,

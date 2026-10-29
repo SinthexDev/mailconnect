@@ -13,6 +13,7 @@ export type AppConfig = {
   cronSecret: string;
   syncBatch: number;
   webDist: string;
+  requireAgentName: boolean;
 };
 
 export function loadDotEnv(path = process.env.MAILCONNECT_ENV ?? ".env"): void {
@@ -56,5 +57,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     cronSecret: env.CRON_SECRET ?? "",
     syncBatch: Number(env.INDEX_BATCH ?? 80),
     webDist: env.WEB_DIST ?? "./public",
+    requireAgentName: !["0", "false", "no"].includes((env.MAILCONNECT_REQUIRE_AGENT_NAME ?? "1").toLowerCase()),
   };
 }

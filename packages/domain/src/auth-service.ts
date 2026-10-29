@@ -8,7 +8,8 @@ import type {
   SessionRepository,
   UserRepository,
 } from "./ports.js";
-import type { Invite, PublicUser, Role } from "./types.js";
+import type { Invite, PublicUser, User } from "./types.js";
+import { normalizeLogin, normalizeUsername } from "./username.js";
 
 const SESSION_DAYS = 14;
 const MIN_PASSWORD = 12;
@@ -33,8 +34,8 @@ function assertEmail(email: string): string {
   return normalized;
 }
 
-export function toPublicUser(user: { id: string; email: string; role: Role }): PublicUser {
-  return { id: user.id, email: user.email, role: user.role };
+export function toPublicUser(user: Pick<User, "id" | "email" | "username" | "role">): PublicUser {
+  return { id: user.id, email: user.email, username: user.username, role: user.role };
 }
 
 export class AuthService {
@@ -56,6 +57,7 @@ export class AuthService {
     const user = {
       id: this.ids.newId(),
       email: assertEmail(email),
+      username: null as string | null,
       passwordHash: await this.passwords.hash(password),
       role: "admin" as const,
       createdAt: this.clock.now(),
@@ -64,13 +66,30 @@ export class AuthService {
     return toPublicUser(user);
   }
 
-  async login(email: string, password: string): Promise<{ token: string; user: PublicUser }> {
-    const user = this.users.findByEmail(normalizeEmail(email));
+  async login(login: string, password: string): Promise<{ token: string; user: PublicUser }> {
+    const parsed = normalizeLogin(login);
+    const user = parsed.kind === "email"
+      ? this.users.findByEmail(parsed.value)
+      : this.users.findByUsername(parsed.value);
     const valid = await this.passwords.verify(password, user?.passwordHash ?? "not-a-hash");
     if (!user || !valid) {
-      throw new AppError("invalid_login", "E-Mail oder Passwort ist falsch.", 401);
+      throw new AppError("invalid_login", "Anmeldung oder Passwort ist falsch.", 401);
     }
     return { token: this.openSession(user.id), user: toPublicUser(user) };
+  }
+
+  updateUsername(userId: string, username: string | null | undefined): PublicUser {
+    const user = this.users.findById(userId);
+    if (!user) throw unauthorized();
+    const next = normalizeUsername(username);
+    if (next) {
+      const taken = this.users.findByUsername(next);
+      if (taken && taken.id !== userId) {
+        throw new AppError("username_taken", "Dieser Benutzername ist schon vergeben.", 409);
+      }
+    }
+    this.users.updateUsername(userId, next);
+    return toPublicUser({ ...user, username: next });
   }
 
   logout(sessionToken: string): void {
@@ -147,6 +166,7 @@ export class AuthService {
     const user = {
       id: this.ids.newId(),
       email: normalized,
+      username: null as string | null,
       passwordHash: await this.passwords.hash(password),
       role: "user" as const,
       createdAt: this.clock.now(),

@@ -1,5 +1,11 @@
 import type {
   ApiToken,
+  AuditAgentSummary,
+  AuditEvent,
+  AuditEventDraft,
+  AuditFilter,
+  AuditScope,
+  AuditVerification,
   ChannelSettings,
   CredentialKind,
   EncryptedBlob,
@@ -53,8 +59,10 @@ export interface UserRepository {
   count(): number;
   insert(user: User): void;
   findByEmail(email: string): User | null;
+  findByUsername(username: string): User | null;
   findById(id: string): User | null;
   updatePassword(id: string, passwordHash: string): void;
+  updateUsername(id: string, username: string | null): void;
 }
 
 export interface InviteRepository {
@@ -75,6 +83,7 @@ export interface ApiTokenRepository {
   insert(token: ApiToken, tokenHash: string): void;
   listByUser(userId: string): ApiToken[];
   findUserIdByHash(tokenHash: string): string | null;
+  findByHash(tokenHash: string): { id: string; userId: string; name: string } | null;
   touch(tokenHash: string, at: string): void;
   revoke(id: string, userId: string, at: string): boolean;
 }
@@ -170,6 +179,7 @@ export type WebhookMessage = {
 };
 
 export type WebhookEvent = {
+  userId: string;
   mailboxId: string;
   displayName: string;
   email: string;
@@ -178,8 +188,26 @@ export type WebhookEvent = {
   messages: WebhookMessage[];
 };
 
+export type WebhookDelivery = {
+  url: string;
+  method: string;
+  status: "ok" | "error" | "rejected";
+  httpStatus: number | null;
+  error: string | null;
+  messageCount: number;
+  messages: WebhookMessage[];
+};
+
 export interface WebhookPort {
-  notify(event: WebhookEvent): Promise<void>;
+  notify(event: WebhookEvent): Promise<WebhookDelivery[] | void>;
+}
+
+export interface AuditRepository {
+  insert(draft: AuditEventDraft, id: string, ts: string): AuditEvent;
+  list(scope: AuditScope, filter: AuditFilter): { events: AuditEvent[]; total: number };
+  find(scope: AuditScope, id: string): AuditEvent | null;
+  agents(scope: AuditScope, since?: string): AuditAgentSummary[];
+  verify(): AuditVerification;
 }
 
 export interface ProviderCatalog {

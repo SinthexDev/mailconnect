@@ -376,3 +376,20 @@ fieldset.channel legend { font-family: var(--font-display); font-size: 1.25rem; 
 .signature-back { color: var(--coral-deep); font-weight: 600; text-decoration: none; }
 .signature-frame { display: block; width: 100%; height: calc(100vh - 16rem); min-height: 18rem; border: 0; background: #fff; }
 .signature-plain { margin: 0; padding: 1.5rem; white-space: pre-wrap; font: inherit; line-height: 1.5; }
+
+.table-wrap { overflow-x: auto; border-top: 1px solid var(--line); }
+.audit-table { width: 100%; border-collapse: collapse; font-size: 0.92rem; }
+.audit-table th { text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.audit-table td { padding: 0.6rem 0.7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+.audit-row { cursor: pointer; }
+.audit-row:hover { background: rgba(23, 44, 78, 0.05); }
+.audit-row.status-error .status-word, .audit-row.status-denied .status-word { color: var(--danger); }
+.audit-detail td { background: rgba(23, 44, 78, 0.04); }
+.audit-detail h3 { margin: 0.8rem 0 0.3rem; font-size: 0.95rem; }
+.audit-detail .code { max-height: 22rem; overflow: auto; margin: 0; }
+.audit-tools { max-width: 22rem; overflow-wrap: anywhere; color: var(--ink-soft); }
+.audit-hash { overflow-wrap: anywhere; font-size: 0.75rem; }
+.audit-filter label { min-width: 9rem; }
+.audit-bar { align-items: center; margin-bottom: 1rem; }
+.audit-bar .muted { margin-right: auto; }
+.audit-tabs { margin-bottom: 1.25rem; }

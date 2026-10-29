@@ -5,6 +5,7 @@ export type IndexStatus = "idle" | "syncing" | "paused" | "error" | "disabled";
 export type User = {
   id: string;
   email: string;
+  username: string | null;
   passwordHash: string;
   role: Role;
   createdAt: string;
@@ -13,6 +14,7 @@ export type User = {
 export type PublicUser = {
   id: string;
   email: string;
+  username: string | null;
   role: Role;
 };
 
@@ -200,6 +202,8 @@ export type PreparedAttachment = {
   contentId?: string;
 };
 
+export type MailPriority = "high" | "normal" | "low";
+
 export type OutboundMail = {
   from: { name?: string; address: string };
   to: string[];
@@ -208,6 +212,7 @@ export type OutboundMail = {
   subject: string;
   text: string;
   html?: string;
+  priority?: MailPriority;
   attachments?: PreparedAttachment[];
 };
 
@@ -310,4 +315,74 @@ export type ChannelTestResult = {
 export type ConnectionTestResult = {
   imap?: ChannelTestResult;
   smtp?: ChannelTestResult;
+};
+
+export type AuditSource = "mcp" | "web" | "system";
+export type AuditCategory = "read" | "write" | "delete" | "send" | "sync" | "admin" | "auth" | "session" | "flow";
+export type AuditStatus = "ok" | "error" | "denied";
+
+export type AuditEvent = {
+  seq: number;
+  id: string;
+  ts: string;
+  userId: string | null;
+  source: AuditSource;
+  category: AuditCategory;
+  action: string;
+  status: AuditStatus;
+  durationMs: number | null;
+  tokenId: string | null;
+  tokenName: string | null;
+  agentName: string | null;
+  runId: string | null;
+  mailboxId: string | null;
+  mailboxEmail: string | null;
+  resource: Record<string, unknown>;
+  input: unknown;
+  output: unknown;
+  error: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  prevHash: string;
+  hash: string;
+};
+
+export type AuditEventDraft = Omit<AuditEvent, "seq" | "id" | "ts" | "prevHash" | "hash" | "resource" | "input" | "output" | "error" | "durationMs" | "tokenId" | "tokenName" | "agentName" | "runId" | "mailboxId" | "mailboxEmail" | "ip" | "userAgent"> &
+  Partial<Pick<AuditEvent, "resource" | "input" | "output" | "error" | "durationMs" | "tokenId" | "tokenName" | "agentName" | "runId" | "mailboxId" | "mailboxEmail" | "ip" | "userAgent">>;
+
+export type AuditFilter = {
+  agent?: string;
+  tokenId?: string;
+  action?: string;
+  category?: AuditCategory;
+  status?: AuditStatus;
+  source?: AuditSource;
+  mailboxId?: string;
+  runId?: string;
+  since?: string;
+  until?: string;
+  q?: string;
+  limit?: number;
+  before?: number;
+};
+
+export type AuditScope = { userId: string; includeUnowned: boolean };
+
+export type AuditAgentSummary = {
+  tokenId: string | null;
+  tokenName: string | null;
+  agentName: string | null;
+  calls: number;
+  errors: number;
+  sends: number;
+  deletes: number;
+  tools: string[];
+  firstSeen: string;
+  lastSeen: string;
+};
+
+export type AuditVerification = {
+  ok: boolean;
+  checked: number;
+  brokenAtSeq: number | null;
 };
